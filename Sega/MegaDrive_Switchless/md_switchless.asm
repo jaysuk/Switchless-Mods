@@ -1,0 +1,457 @@
+#include <p16f630.inc>
+
+;
+; -----------------------------------------------------------------------
+;
+;	Sega Mega Drive switchless mod
+;
+;   Copyright (C) 2014 by Peter Bartmann <peter.bartmann@gmx.de>
+;
+;   This program is free software; you can redistribute it and/or modify
+;   it under the terms of the GNU General Public License as published by
+;   the Free Software Foundation; version 2 of the License only.
+;
+;   This program is distributed in the hope that it will be useful,
+;   but WITHOUT ANY WARRANTY; without even the implied warranty of
+;   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;   GNU General Public License for more details.
+;
+;   You should have received a copy of the GNU General Public License
+;   along with this program; if not, write to the Free Software
+;   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+;
+; -----------------------------------------------------------------------
+;
+;   pin configuration: 
+;
+;                         ,-----_-----.
+;                     +5V |1        14| GND
+;       Reset Button (in) |2  A5 A0 13| free
+;        Reset Line (out) |3  A4 A1 12| free
+;              /RoLC (in) |4  A3 A2 11| Language   (out)
+;       (green) LED (out) |5  C5 C0 10| /Language   (out)
+;         (red) LED (out) |6  C4 C1  9| Videomode  (out)
+;           LED_TYPE (in) |7  C3 C2  8| /Videomode (out)
+;                         `-----------'
+;
+; Special purposes for pins:
+;
+;   Pin 4 (RoLC = reset on language change)
+;      low = RoLC on - pic resets console if language bit has to be changed
+;     high = RoLC off
+; -----------------------------------------------------------------------
+;
+; mode description:
+;
+; mode 1 = PAL:           50Hz, LED green
+;
+; mode 2 = NTSC:          60Hz, LED red
+;
+; mode 4 = JAP NTSC:      60Hz, LED orange
+;      
+; -----------------------------------------------------------------------
+; Configuration bits: adapt to your setup and needs
+
+    __CONFIG _INTRC_OSC_NOCLKOUT & _WDT_OFF & _PWRTE_OFF & _MCLRE_OFF & _CP_OFF & _CPD_OFF
+
+Debug   set 0 ; 0 = debug off, 1= debug on
+
+; -----------------------------------------------------------------------
+; macros and definitions
+
+M_movff macro   fromReg, toReg  ; move filereg to filereg
+        movfw   fromReg
+        movwf   toReg
+        endm
+
+M_movpf macro   fromPORT, toReg ; move PORTx to filereg
+        movfw   fromPORT
+        andlw   0x3f
+        movwf   toReg
+        endm
+
+M_movlf macro   literal, toReg  ; move literal to filereg
+        movlw   literal
+        movwf   toReg
+        endm
+
+M_beff  macro   compReg1, compReg2, branch  ; branch if two fileregs are equal
+        movfw   compReg1
+        xorwf	compReg2, w
+        btfsc   STATUS, Z
+        goto    branch
+        endm
+
+M_bepf  macro   compPORT, compReg, branch   ; brach if PORTx equals compReg (ignoring bit 6 and 7)
+        movfw   compPORT
+        xorwf   compReg, w
+        andlw   0x3f
+        btfsc   STATUS, Z
+        goto    branch
+        endm
+
+M_belf  macro   literal, compReg, branch  ; branch if a literal is stored in filereg
+        movlw   literal
+        xorwf	compReg, w
+        btfsc   STATUS, Z
+        goto    branch
+        endm
+
+M_celf  macro   literal, compReg, call_func  ; call if a literal is stored in filereg
+        movlw   literal
+        xorwf	compReg, w
+        btfsc   STATUS, Z
+        call    call_func
+        endm
+
+M_delay_x10ms   macro   literal ; delay about literal x 10ms
+                movlw   literal
+                movwf   reg_repetition_cnt
+                call    delay_x10ms
+                endm
+
+M_push_reset    macro
+                banksel TRISA
+                bcf     TRISA, RESET_OUT
+                banksel PORTA
+                bcf     PORTA, RESET_OUT
+                endm
+
+M_release_reset macro
+                bsf     PORTA, RESET_OUT
+                banksel TRISA
+                bsf     TRISA, RESET_OUT
+                banksel PORTA
+                endm
+
+M_set50 macro
+        bcf PORTC, VIDMODE
+        bsf PORTC, NVIDMODE
+        endm
+
+M_set60 macro
+        bsf PORTC, VIDMODE
+        bcf PORTC, NVIDMODE
+        endm
+
+M_setEN macro
+        bsf PORTA, LANGUAGE
+        bcf PORTC, NLANGUAGE
+        endm
+
+M_setJA macro
+        bcf PORTA, LANGUAGE
+        bsf PORTC, NLANGUAGE
+        endm
+
+M_skipnext_rst_pressed  macro
+                        movfw   PORTA
+                        xorwf   reg_reset_type, w
+                        andlw   (1<<RESET_BUTTON)
+                        btfss   STATUS, Z
+                        endm
+
+M_skipnext_rst_notpressed   macro
+                            movfw   PORTA
+                            xorwf   reg_reset_type, w
+                            andlw   1<<RESET_BUTTON
+                            btfsc   STATUS, Z
+                            endm
+; -----------------------------------------------------------------------
+
+;port a
+LANGUAGE        EQU 2
+NRoLC           EQU 3
+RESET_OUT       EQU 4
+RESET_BUTTON    EQU 5
+
+;port c
+NLANGUAGE   EQU 0
+VIDMODE     EQU 1
+NVIDMODE    EQU 2
+LED_TYPE    EQU 3
+LED_RED     EQU 4
+LED_GREEN   EQU 5
+
+; registers
+reg_overflow_cnt    EQU 0x20
+reg_repetition_cnt  EQU 0x21
+reg_current_mode    EQU 0x30
+reg_previous_mode   EQU 0x31
+reg_reset_type      EQU 0x40
+reg_led_buffer      EQU 0x41
+reg_first_boot_done EQU 0x42
+
+; codes and bits
+code_modereset      EQU 0x00
+code_pal            EQU 0x00
+code_ntsc           EQU 0x01
+code_jap            EQU 0x02
+
+default_mode    EQU code_ntsc
+
+mode_overflow       EQU 0x03
+bit_language        EQU 1
+
+
+code_led_off    EQU 0x00
+code_led_green  EQU (1<<LED_GREEN)
+code_led_red    EQU (1<<LED_RED)
+code_led_yellow EQU code_led_green ^ code_led_red
+
+code_led_invert EQU code_led_green ^ code_led_red
+
+delay_10ms_t0_overflows EQU 0x0a    ; prescaler T0 set to 1:4 @ 4MHz
+repetitions_100ms       EQU 0x0a
+repetitions_200ms       EQU 0x14
+repetitions_300ms       EQU 0x1e
+repetitions_mode_delay  EQU 0x4a    ; around 740ms
+
+; -----------------------------------------------------------------------
+
+; code memory
+ org    0x0000
+    clrf	STATUS		; 00h Page 0, Bank 0
+	nop                 ; 01h
+    nop                 ; 02h
+    goto	start		; 03h begin program / Initializing
+
+ org    0x0004  ; jump here on interrupt with GIE set (should not appear)
+    return      ; return with GIE unset
+
+ org    0x0005
+idle
+    M_skipnext_rst_notpressed
+    goto    check_rst
+    bcf     INTCON, RAIF
+    sleep
+
+check_rst
+    call    delay_10ms                      ; software debounce
+    call    delay_10ms                      ; software debounce
+    M_skipnext_rst_pressed
+    goto    idle
+
+    M_movlf repetitions_mode_delay, reg_repetition_cnt
+
+check_rst_loop
+    call    delay_10ms
+    M_skipnext_rst_pressed
+    goto    doreset
+    decfsz  reg_repetition_cnt, 1
+    goto    check_rst_loop
+    
+next_mode
+    incf    reg_current_mode, 1
+    M_celf  mode_overflow, reg_current_mode, reset_mode
+
+mode_delay
+    call    setled
+    M_movlf repetitions_mode_delay, reg_repetition_cnt
+
+mode_delay_loop
+    call    delay_10ms
+    M_skipnext_rst_pressed
+    goto    apply_mode
+    decfsz  reg_repetition_cnt, 1
+    goto    mode_delay_loop
+    goto    next_mode
+
+
+apply_mode
+    call    save_mode
+    M_belf  code_pal, reg_current_mode, set_new_pal
+    M_belf  code_ntsc, reg_current_mode, set_new_ntsc
+    M_belf  code_jap, reg_current_mode, set_new_jap
+    goto    set_previous_mode  ; should not appear
+
+set_new_pal
+    M_set50
+    goto    apply_mode_post_check
+
+set_new_ntsc
+    M_set60
+    goto    apply_mode_post_check
+
+set_new_jap
+    M_set60
+    goto    apply_mode_post_check
+
+set_previous_mode
+    M_movff reg_previous_mode, reg_current_mode
+    call    save_mode
+    call    setled
+    goto    idle
+
+apply_mode_post_check
+    ; strategie: look if language has been changed while changing mode
+    movfw   reg_previous_mode
+    xorwf   reg_current_mode, w
+    andlw   (1<<bit_language)
+    btfsc   STATUS, Z
+    goto    idle                ; language bit has not changed
+    btfsc   PORTA, NRoLC        ; language bit has changed
+    goto    idle
+;    goto    doreset
+
+doreset
+    M_push_reset
+    M_delay_x10ms   repetitions_300ms
+    M_movff reg_current_mode, reg_previous_mode
+    goto    set_initial_mode            ; small trick ;)
+
+; --------calls--------
+setled
+    M_belf  code_pal, reg_current_mode, setled_green
+    M_belf  code_ntsc, reg_current_mode, setled_red
+;    M_belf  code_jap, reg_current_mode, setled_yellow
+    goto    setled_yellow
+
+setled_green
+    movfw   PORTC
+    andlw   0x0f
+    xorlw   code_led_green
+    btfsc	PORTC, LED_TYPE ; if common anode:
+    xorlw   code_led_invert ; invert output
+    movwf   PORTC
+    return
+
+setled_red
+    movfw   PORTC
+    andlw   0x0f
+    xorlw   code_led_red
+    btfsc	PORTC, LED_TYPE ; if common anode:
+    xorlw   code_led_invert ; invert output
+    movwf   PORTC
+    return
+
+setled_yellow
+    movfw   PORTC
+    andlw   0x0f
+    xorlw   code_led_yellow
+    btfsc	PORTC, LED_TYPE ; if common anode:
+    xorlw   code_led_invert ; invert output
+    movwf   PORTC
+    return
+
+save_mode
+    movfw   reg_current_mode
+	banksel	EEADR		; save to EEPROM. note: banksels take two cycles each!
+	movwf	EEDAT
+	bsf     EECON1,WREN
+	movlw	0x55
+	movwf	EECON2
+	movlw	0xaa
+	movwf	EECON2
+	bsf     EECON1, WR
+	banksel	PORTA		; two cycles again
+    return
+
+reset_mode
+    M_movlf code_modereset, reg_current_mode
+    return
+
+
+delay_10ms
+    M_movlf delay_10ms_t0_overflows, reg_overflow_cnt
+    clrf    W
+    movwf   TMR0    ; start timer
+
+delay_10ms_loop_pre
+    bcf     INTCON, T0IF
+
+delay_10ms_loop
+    btfss   INTCON, T0IF
+    goto    delay_10ms_loop
+    decfsz  reg_overflow_cnt, 1
+    goto    delay_10ms_loop_pre
+    return
+
+delay_x10ms
+    call    delay_10ms
+    decfsz  reg_repetition_cnt, 1
+    goto    delay_x10ms
+    return
+
+; --------initialization--------
+
+start
+    clrf    PORTA
+    clrf    PORTC
+    M_movlf 0x07, CMCON                 ; GPIO2..0 are digital I/O (not connected to comparator)
+    M_movlf 0x28, INTCON                ; enable interrupts: T0IE and RAIE
+    banksel TRISA                       ; Bank 1
+    call    3FFh                        ; Get the cal value
+    movwf   OSCCAL                      ; Calibrate
+    M_movlf 0x3b, TRISA                 ; in in in out in in
+;    M_movlf 0x2b, TRISA                 ; in out in out in in
+    M_movlf 0x08, TRISC                 ; out out in out out out
+    M_movlf (1<<RESET_BUTTON), IOCA     ; IOC at reset button
+    M_movlf 0x23, WPUA                  ; pullups at unused pins and reset button
+    M_movlf 0x01, OPTION_REG            ; global pullup enable, prescaler T0 1:4
+    banksel	PORTA                       ; Bank 0
+;    M_push_reset    ; hold console in reset
+
+load_mode
+    clrf	reg_current_mode
+    clrf    reg_previous_mode
+    clrf    reg_first_boot_done
+	bcf     STATUS, C           ; clear carry
+    banksel EEADR               ; fetch current mode from EEPROM
+    clrf    EEADR               ; address 0
+    bsf     EECON1, RD
+    movf    EEDAT, w
+    banksel PORTA
+	movwf	reg_current_mode    ; last mode saved
+    movwf   reg_previous_mode   ; last mode saved to compare
+
+set_initial_mode
+    ; strategie: try to set mode, set if valid, set to default if not
+    M_belf  code_pal, reg_current_mode, set_pal
+    M_belf  code_ntsc, reg_current_mode, set_ntsc
+    M_belf  code_jap, reg_current_mode, set_jap
+    goto    set_default  ; should not appear
+
+set_pal
+    M_set50
+    M_setEN
+    goto    init_end
+
+set_ntsc
+    M_set60
+    M_setEN
+    goto    init_end
+
+set_jap
+    M_set60
+    M_setJA
+;    goto    init_end
+
+init_end
+    call    save_mode
+    call    setled
+    M_release_reset
+    btfsc   reg_first_boot_done, 0
+    goto    idle
+    bsf     reg_first_boot_done, 0
+
+detect_reset_type
+    clrf    reg_reset_type
+    btfss   PORTA, RESET_BUTTON
+    bsf     reg_reset_type, RESET_BUTTON
+    goto    idle
+
+set_default
+    movlw   default_mode
+    movwf   reg_current_mode
+    movwf   reg_previous_mode
+    goto    set_initial_mode
+
+; -----------------------------------------------------------------------
+; eeprom data
+DEEPROM	CODE
+	de	default_mode
+
+theend
+    END
+; ------------------------------------------------------------------------
