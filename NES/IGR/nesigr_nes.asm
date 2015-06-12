@@ -15,9 +15,9 @@
 ;
 ;                                         ,----_-----.
 ;                    +5V (7) [CIC Pin 16] |1        8| GND (1) [CIC Pin 15]
-;   Reset - out (-) [CIC Pin 7/CPU Pin 3] |2  A5 A0 7| serial data in (4) [U7 74HC368 Pin 2]
-;                 Resettype -  in (*) [*] |3  A4 A1 6| latch in (3) [CPU Pin 39]
-;                       n.c. in (**) [**] |4  A3 A2 5| clk in (2) [CPU Pin 36]
+;   Reset - out (-) [CPU Pin 3/CIC Pin 7] |2  A5 A0 7| serial data in (4) [U7 74HC368 Pin 2]
+;                                    n.c. |3  A4 A1 6| latch in (3) [CPU Pin 39]
+;                 Resettype -  in (*) [*] |4  A3 A2 5| clk in (2) [CPU Pin 36]
 ;                                         `----------'
 ;
 ;   As the internal oscillator is used, you should connect a capacitor of about 100nF between
@@ -25,8 +25,10 @@
 ;   operation.
 ;
 ;   * Resettype:
-;     - Pin set tide to Vcc = low-active reset (e.g. Famicom)
-;     - Pin set tide to GND = high-active reset (e.g. US-NES, consoles with CIC)
+;     - Pin 4 set tide to Vcc = low-active reset
+;       (e.g. Famicom -> Pin 2 is connected to CPU Pin 3)
+;     - Pin 4 set tide to GND = high-active reset
+;       (e.g. US-NES, consoles with CIC -> Pin 2 is connected to CIC Pin 7)
 ;
 ;
 ;   controller pin numbering
@@ -111,8 +113,8 @@ M_delay_x05ms   macro   literal ; delay about literal x 05ms
 CTRL_DATA   EQU 0
 CTRL_LATCH  EQU 1
 CTRL_CLK    EQU 2
-N_C         EQU 3
-RESET_IN    EQU 4
+RESET_TYPE  EQU 3
+N_C         EQU 4
 RESET_OUT   EQU 5
 
 reg_ctrl_data       EQU 0x41
@@ -335,15 +337,15 @@ start
     banksel TRISIO
     M_movlf 0x70, OSCCON        ; use 8MHz internal clock (internal clock set on config)
     M_movlf 0x3f, TRISIO        ; in in in in in in
-    clrf    WPUDA               ; no pullups
+    M_movlf (1<<N_C), WPUDA     ; pullup at unused pin
     M_movlf 0x02, IOCA          ; IOC on DATA_LATCH
-    M_movlf 0xc1, OPTION_REG    ; global pullup disable, use rising data clock edge for interrupt, prescaler T0 1:4
+    M_movlf 0x41, OPTION_REG    ; global pullup enable, use rising data clock edge for interrupt, prescaler T0 1:4
     banksel GPIO
 
 detect_reset_type
     clrf    reg_reset_type
     movlw   code_reset_high_active
-    btfss   GPIO, RESET_IN         ; jump next instruction for low-active reset
+    btfss   GPIO, RESET_TYPE         ; jump next instruction for low-active reset
     movwf   reg_reset_type
 
 init_end
