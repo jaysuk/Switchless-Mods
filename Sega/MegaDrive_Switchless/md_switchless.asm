@@ -26,8 +26,8 @@
 ;
 ;                         ,-----_-----.
 ;                     +5V |1        14| GND
-;       Reset Button (in) |2  A5 A0 13| free
-;        Reset Line (out) |3  A4 A1 12| free
+;       Reset Button (in) |2  A5 A0 13| n.c.
+;        Reset Line (out) |3  A4 A1 12| n.c.
 ;              /RoLC (in) |4  A3 A2 11| Language   (out)
 ;       (green) LED (out) |5  C5 C0 10| /Language   (out)
 ;         (red) LED (out) |6  C4 C1  9| Videomode  (out)
@@ -39,22 +39,32 @@
 ;   Pin 4 (RoLC = reset on language change)
 ;      low = RoLC on - pic resets console if language bit has to be changed
 ;     high = RoLC off
+;
+;   Pin 9 (Videomode)    Pin 8 (/Videomode)
+;      low = 50Hz           low = 60Hz
+;     high = 60Hz          high = 50Hz
+;                          -> Opposite of Pin 9
+;
+;   Pin 11 (Language)    Pin 10 (/Language)
+;      low = Japanese       low = English
+;     high = English       high = Japanese
+;                          -> Opposite of Pin 11
+;     
+;     
 ; -----------------------------------------------------------------------
 ;
 ; mode description:
 ;
-; mode 1 = PAL:           50Hz, LED green
+; mode 0x00 = PAL:           50Hz, LED green
 ;
-; mode 2 = NTSC:          60Hz, LED red
+; mode 0x01 = NTSC:          60Hz, LED red
 ;
-; mode 4 = JAP NTSC:      60Hz, LED orange
+; mode 0x02 = JAP NTSC:      60Hz, LED orange
 ;      
 ; -----------------------------------------------------------------------
 ; Configuration bits: adapt to your setup and needs
 
     __CONFIG _INTRC_OSC_NOCLKOUT & _WDT_OFF & _PWRTE_OFF & _MCLRE_OFF & _CP_OFF & _CPD_OFF
-
-Debug   set 0 ; 0 = debug off, 1= debug on
 
 ; -----------------------------------------------------------------------
 ; macros and definitions
@@ -192,6 +202,7 @@ default_mode    EQU code_ntsc
 
 mode_overflow       EQU 0x03
 bit_language        EQU 1
+bit_eng_hz          EQU 0
 
 
 code_led_off    EQU 0x00
@@ -260,6 +271,8 @@ mode_delay_loop
 
 apply_mode
     call    save_mode
+    ; other strategie than in set_initial_mode
+    ; -> protection against an error in mode selection
     M_belf  code_pal, reg_current_mode, set_new_pal
     M_belf  code_ntsc, reg_current_mode, set_new_ntsc
     M_belf  code_jap, reg_current_mode, set_new_jap
@@ -289,8 +302,9 @@ apply_mode_post_check
     xorwf   reg_current_mode, w
     andlw   (1<<bit_language)
     btfsc   STATUS, Z
-    goto    idle                ; language bit has not changed
-    btfsc   PORTA, NRoLC        ; language bit has changed
+    goto    idle                    ; language bit has not changed
+                                    ; language bit has changed:
+    btfsc   PORTA, NRoLC            ; - look if the user wants a reset on language change
     goto    idle
 ;    goto    doreset
 
@@ -302,10 +316,11 @@ doreset
 
 ; --------calls--------
 setled
-    M_belf  code_pal, reg_current_mode, setled_green
-    M_belf  code_ntsc, reg_current_mode, setled_red
-;    M_belf  code_jap, reg_current_mode, setled_yellow
+    ; same strategie as in set_initial_mode
+    btfsc   reg_current_mode, bit_language
     goto    setled_yellow
+    btfsc   reg_current_mode, bit_eng_hz
+    goto    setled_red
 
 setled_green
     movfw   PORTC
@@ -334,23 +349,26 @@ setled_yellow
     movwf   PORTC
     return
 
-save_mode
-    movfw   reg_current_mode
-	banksel	EEADR		; save to EEPROM. note: banksels take two cycles each!
-	movwf	EEDAT
-	bsf     EECON1,WREN
-	movlw	0x55
-	movwf	EECON2
-	movlw	0xaa
-	movwf	EECON2
-	bsf     EECON1, WR
-	banksel	PORTA		; two cycles again
-    return
-
 reset_mode
     M_movlf code_modereset, reg_current_mode
     return
 
+save_mode
+    movfw   reg_current_mode
+	banksel EEADR           ; save to EEPROM. note: banksels take two cycles each!
+	movwf   EEDAT
+    clrf    EEADR           ; address 0
+	bsf     EECON1, WREN
+	movlw   0x55
+	movwf   EECON2
+	movlw   0xaa
+	movwf   EECON2
+	bsf     EECON1, WR
+wait_save_mode_end
+    btfsc   EECON1, WR
+    goto    wait_save_mode_end
+	bcf     EECON1, WREN
+	banksel	PORTA           ; two cycles again
 
 delay_10ms
     M_movlf delay_10ms_t0_overflows, reg_overflow_cnt
@@ -384,53 +402,58 @@ start
     call    3FFh                        ; Get the cal value
     movwf   OSCCAL                      ; Calibrate
     M_movlf 0x3b, TRISA                 ; in in in out in in
-;    M_movlf 0x2b, TRISA                 ; in out in out in in
     M_movlf 0x08, TRISC                 ; out out in out out out
     M_movlf (1<<RESET_BUTTON), IOCA     ; IOC at reset button
     M_movlf 0x23, WPUA                  ; pullups at unused pins and reset button
     M_movlf 0x01, OPTION_REG            ; global pullup enable, prescaler T0 1:4
     banksel	PORTA                       ; Bank 0
-;    M_push_reset    ; hold console in reset
+
 
 load_mode
-    clrf	reg_current_mode
-    clrf    reg_previous_mode
-    clrf    reg_first_boot_done
-	bcf     STATUS, C           ; clear carry
+    clrf    reg_current_mode
+    bcf     STATUS, C           ; clear carry
     banksel EEADR               ; fetch current mode from EEPROM
     clrf    EEADR               ; address 0
     bsf     EECON1, RD
-    movf    EEDAT, w
+    movfw   EEDAT
     banksel PORTA
-	movwf	reg_current_mode    ; last mode saved
-    movwf   reg_previous_mode   ; last mode saved to compare
+    movwf   reg_current_mode    ; last mode saved
 
 set_initial_mode
-    ; strategie: try to set mode, set if valid, set to default if not
-    M_belf  code_pal, reg_current_mode, set_pal
-    M_belf  code_ntsc, reg_current_mode, set_ntsc
-    M_belf  code_jap, reg_current_mode, set_jap
-    goto    set_default  ; should not appear
+    ; strategie: check language flag
+    ;            -> if Jap, set also 60Hz
+    ;            -> if Eng, check 50/60Hz at first bit
+    btfsc   reg_current_mode, bit_language
+    goto    set_jap
+    btfsc   reg_current_mode, bit_eng_hz
+    goto    set_ntsc
 
 set_pal
     M_set50
     M_setEN
+    M_movlf code_pal, reg_current_mode  ; in case a non-valid mode is stored
     goto    init_end
 
 set_ntsc
     M_set60
     M_setEN
+    M_movlf code_ntsc, reg_current_mode ; in case a non-valid mode is stored
     goto    init_end
 
 set_jap
     M_set60
     M_setJA
-;    goto    init_end
+    M_movlf code_jap, reg_current_mode  ; in case a non-valid mode is stored
+;    goto    init_end 
 
 init_end
     call    save_mode
     call    setled
     M_release_reset
+    clrf    reg_previous_mode
+    M_movff reg_current_mode, reg_previous_mode ; last mode saved to compare
+    btfss   reg_first_boot_done, 0 
+    clrf    reg_first_boot_done
     btfsc   reg_first_boot_done, 0
     goto    idle
     bsf     reg_first_boot_done, 0
@@ -440,12 +463,6 @@ detect_reset_type
     btfss   PORTA, RESET_BUTTON
     bsf     reg_reset_type, RESET_BUTTON
     goto    idle
-
-set_default
-    movlw   default_mode
-    movwf   reg_current_mode
-    movwf   reg_previous_mode
-    goto    set_initial_mode
 
 ; -----------------------------------------------------------------------
 ; eeprom data
