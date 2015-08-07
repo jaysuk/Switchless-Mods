@@ -137,7 +137,7 @@
 
     __CONFIG _INTOSCIO & _IESO_OFF & _WDT_OFF & _PWRTE_OFF & _MCLRE_OFF & _CP_OFF & _BOD_OFF & _CP_OFF & _CPD_OFF
 
-Debug   set 0 ; 0 = debug off, 1= debug on
+CA_LED   set 0 ; 0 = LED with common cathode, 1 = LED with common anode
 
 ; -----------------------------------------------------------------------
 ; macros and definitions
@@ -216,7 +216,6 @@ reg_current_mode    EQU 0x30
 reg_previous_mode   EQU 0x31
 reg_reset_type      EQU 0x40
 reg_ctrl_reset      EQU 0x41
-reg_led_type        EQU 0x42
 
 RGB_off             EQU 0x00    ; code for RGB off
 RGB_natural         EQU 0x01    ; code for RGB on natural
@@ -233,7 +232,6 @@ code_led_off    EQU 0x00
 code_led_red    EQU (1<<LED_RED)
 code_led_green  EQU (1<<LED_GREEN)
 code_led_yellow EQU (1<<LED_RED) ^ (1<<LED_GREEN)
-led_type        EQU 0x01    ; LED-Type: 00-com.Cat., 01/com.An. - set here
 
 bit_reset_type          EQU RESET_OUT
 code_reset_low_active   EQU (0<<bit_reset_type)  ; 0x00
@@ -242,7 +240,7 @@ code_reset_high_active  EQU (1<<bit_reset_type)  ; 0x20
 bit_ctrl_reset_perform_long EQU 5
 bit_ctrl_reset_flag         EQU 7
 
-delay_05ms_t0_overflows EQU 0x0a    ; prescaler T0 set to 1:4 @ 8MHz
+delay_05ms_t0_overflows EQU 0x14    ; prescaler T0 set to 1:2 @ 8MHz
 repetitions_045ms       EQU 0x09
 repetitions_200ms       EQU 0x28
 repetitions_300ms       EQU 0x3c
@@ -276,106 +274,135 @@ BUTTON_Ri   EQU 0
 
  org    0x0005
 idle
-    M_movlf 0xff, reg_ctrl_data
+    clrf    reg_ctrl_data
     btfsc   PORTA, CTRL_LATCH
-    goto    read_Button_A       ; go go go
+    goto    wait_ctrl_read      ; go go go
     bcf     INTCON, RAIF
     skipnext_for_lowreset
     goto    idle_loop_reset_high
 
 idle_loop_reset_low
     btfsc	INTCON, RAIF            ; data latch changed?
-    goto    read_Button_A           ; yes
+    goto    wait_ctrl_read          ; yes
     btfss   PORTA, RESET_IN         ; reset pressed?
     goto    check_reset             ; yes
     btfsc	INTCON, RAIF            ; data latch changed?
-    goto    read_Button_A           ; yes
-    goto    idle_loop_reset_low     ; no
+    goto    wait_ctrl_read          ; yes
+    goto    idle_loop_reset_low     ; no -> repeat loop
 
 idle_loop_reset_high
     btfsc	INTCON, RAIF            ; data latch changed?
-    goto    read_Button_A           ; yes
+    goto    wait_ctrl_read          ; yes
     btfsc   PORTA, RESET_IN         ; reset pressed?
     goto    check_reset             ; yes
-    btfss	INTCON, RAIF            ; data latch changed?
-    goto    idle_loop_reset_high    ; no
+    btfsc	INTCON, RAIF            ; data latch changed?
+    goto    wait_ctrl_read          ; yes
+    goto    idle_loop_reset_high    ; no -> repeat loop
 
 
+wait_ctrl_read
+    btfsc   PORTA, CTRL_LATCH
+    goto    wait_ctrl_read
+  
 read_Button_A
-    nop
-    nop
-    nop
-    nop
-    btfss   PORTA, CTRL_DATA
-    bcf     reg_ctrl_data, BUTTON_A
     bcf     INTCON, INTF
+    btfsc   PORTA, CTRL_DATA
+    bsf     reg_ctrl_data, BUTTON_A
+postwait_Button_A
+    btfss   INTCON, INTF
+    goto    postwait_Button_A
+    bcf     INTCON, RAIF        ; from now on, no IOC at the data latch shall appear
 
-wait_read_Button_B
-    btfss   INTCON, INTF    ; wait for rising edge on clk
-    goto    wait_read_Button_B
+    bcf     INTCON, INTF
+    movfw   PORTA
+
 read_Button_B
-    M_movlf 0x38, INTCON    ; clear INTF and RAIF (from now on, no IOC at the data latch shall appear)
-    btfss   PORTA, CTRL_DATA
-    bcf     reg_ctrl_data, BUTTON_B
+    btfss   INTCON, INTF
+    movfw   PORTA
+    andlw   (1 << CTRL_DATA)
+    btfss   INTCON, INTF
+    goto    read_Button_B
+store_Button_B
+    btfss   STATUS, Z
+    bsf     reg_ctrl_data, BUTTON_B
 
-wait_read_Button_Sl
-    btfss   INTCON, INTF    ; wait for rising edge on clk
-    goto    wait_read_Button_Sl
+    bcf     INTCON, INTF
+    movfw   PORTA
+
 read_Button_Sl
-    bcf     INTCON, INTF
-    nop
-    btfss   PORTA, CTRL_DATA
-    bcf     reg_ctrl_data, BUTTON_Sl
+    btfss   INTCON, INTF
+    movfw   PORTA
+    andlw   (1 << CTRL_DATA)
+    btfss   INTCON, INTF
+    goto    read_Button_Sl
+store_Button_Sl
+    btfss   STATUS, Z
+    bsf     reg_ctrl_data, BUTTON_Sl
 
-wait_read_Button_St
-    btfss   INTCON, INTF    ; wait for rising edge on clk
-    goto    wait_read_Button_St
+    bcf     INTCON, INTF
+    movfw   PORTA
+
 read_Button_St
-    bcf     INTCON, INTF
-    nop
-    btfss   PORTA, CTRL_DATA
-    bcf     reg_ctrl_data, BUTTON_St
+    btfss   INTCON, INTF
+    movfw   PORTA
+    andlw   (1 << CTRL_DATA)
+    btfss   INTCON, INTF
+    goto    read_Button_St
+store_Button_St
+    btfss   STATUS, Z
+    bsf     reg_ctrl_data, BUTTON_St
 
-wait_read_Button_Up
-    btfss   INTCON, INTF    ; wait for rising edge on clk
-    goto    wait_read_Button_Up
+    bcf     INTCON, INTF
+    movfw   PORTA
+
 read_Button_Up
-    bcf     INTCON, INTF
-    nop
-    btfss   PORTA, CTRL_DATA
-    bcf     reg_ctrl_data, BUTTON_Up
+    btfss   INTCON, INTF
+    movfw   PORTA
+    andlw   (1 << CTRL_DATA)
+    btfss   INTCON, INTF
+    goto    read_Button_Up
+store_Button_Up
+    btfss   STATUS, Z
+    bsf     reg_ctrl_data, BUTTON_Up
 
-wait_read_Button_Dw
-    btfss   INTCON, INTF    ; wait for rising edge on clk
-    goto    wait_read_Button_Dw
+    bcf     INTCON, INTF
+    movfw   PORTA
+
 read_Button_Dw
-    bcf     INTCON, INTF
-    nop
-    btfss   PORTA, CTRL_DATA
-    bcf     reg_ctrl_data, BUTTON_Dw
-    bcf     INTCON, INTF
+    btfss   INTCON, INTF
+    movfw   PORTA
+    andlw   (1 << CTRL_DATA)
+    btfss   INTCON, INTF
+    goto    read_Button_Dw
+store_Button_Dw
+    btfss   STATUS, Z
+    bsf     reg_ctrl_data, BUTTON_Dw
 
-wait_read_Button_Le
-    btfss   INTCON, INTF    ; wait for rising edge on clk
-    goto    wait_read_Button_Le
+    bcf     INTCON, INTF
+    movfw   PORTA
+
 read_Button_Le
-    bcf     INTCON, INTF
-    nop
-    btfss   PORTA, CTRL_DATA
-    bcf     reg_ctrl_data, BUTTON_Le
+    btfss   INTCON, INTF
+    movfw   PORTA
+    andlw   (1 << CTRL_DATA)
+    btfss   INTCON, INTF
+    goto    read_Button_Le
+store_Button_Le
+    btfss   STATUS, Z
+    bsf     reg_ctrl_data, BUTTON_Le
 
-wait_read_Button_Ri
-    btfss   INTCON, INTF    ; wait for rising edge on clk
-    goto    wait_read_Button_Ri
+    bcf     INTCON, INTF
+    movfw   PORTA
+
 read_Button_Ri
-    bcf     INTCON, INTF
-    nop
-    btfss   PORTA, CTRL_DATA
-    bcf     reg_ctrl_data, BUTTON_Ri
-
-wait_read_Button_None
-    btfss   INTCON, INTF    ; wait for rising edge on clk
-    goto    wait_read_Button_None
+    btfss   INTCON, INTF
+    movfw   PORTA
+    andlw   (1 << CTRL_DATA)
+    btfss   INTCON, INTF
+    goto    read_Button_Ri
+store_Button_Ri
+    btfss   STATUS, Z
+    bsf     reg_ctrl_data, BUTTON_Ri
 
     btfsc   INTCON, RAIF
     goto    idle            ; another IOC on data latch appeared -> invalid read
@@ -555,8 +582,9 @@ modeset_off
     M_movlf code_RGB_off, TRISC
     banksel PORTC
     movlw   code_led_off
-    btfsc	reg_led_type, 0 ; if common anode:
-    xorlw	0x30            ; invert output for LED
+    if CA_LED       ; if common anode:
+      xorlw   0x30  ; invert output
+    endif
     movwf	PORTC
     goto    save_mode
 
@@ -570,8 +598,9 @@ modeset_natural
     M_movlf code_RGB_natural, TRISC
     banksel PORTC
     movlw   code_led_red ^ (1<<RGB_ON_OFF)
-    btfsc	reg_led_type, 0 ; if common anode:
-    xorlw	0x30            ; invert output for LED
+    if CA_LED       ; if common anode:
+      xorlw   0x30  ; invert output
+    endif
     movwf	PORTC
     goto    save_mode
 
@@ -581,8 +610,9 @@ modeset_improved
     M_movlf code_RGB_improved, TRISC
     banksel PORTC
     movlw   code_led_green ^ (1<<RGB_ON_OFF)
-    btfsc	reg_led_type, 0 ; if common anode:
-    xorlw	0x30            ; invert output for LED
+    if CA_LED       ; if common anode:
+      xorlw   0x30  ; invert output
+    endif
     movwf	PORTC
     goto    save_mode
 
@@ -592,8 +622,9 @@ modeset_garish
     M_movlf code_RGB_garish, TRISC
     banksel PORTC
     movlw   code_led_yellow ^ (1<<RGB_ON_OFF)
-    btfsc	reg_led_type, 0 ; if common anode:
-    xorlw	0x30            ; invert output for LED
+    if CA_LED       ; if common anode:
+      xorlw   0x30  ; invert output
+    endif
     movwf	PORTC
     goto    save_mode
 
@@ -609,8 +640,9 @@ setleds_off
     movfw   PORTC
     andlw   0x08            ; save RGB mode
     iorlw   code_led_off    ; set LED
-    btfsc	reg_led_type, 0 ; if common anode:
-    xorlw	0x30            ; invert output for LED
+    if CA_LED               ; if common anode:
+      xorlw   0x30          ; invert output
+    endif
     movwf	PORTC
     goto    save_mode
 
@@ -618,8 +650,9 @@ setleds_red
     movfw   PORTC
     andlw   0x08            ; save RGB mode
     iorlw   code_led_red    ; set LED
-    btfsc	reg_led_type, 0 ; if common anode:
-    xorlw	0x30            ; invert output
+    if CA_LED               ; if common anode:
+      xorlw   0x30          ; invert output
+    endif
     movwf	PORTC
     goto    save_mode
 
@@ -627,8 +660,9 @@ setleds_green
     movfw   PORTC
     andlw   0x08            ; save RGB mode
     iorlw   code_led_green  ; set LED
-    btfsc	reg_led_type, 0 ; if common anode:
-    xorlw	0x30            ; invert output
+    if CA_LED               ; if common anode:
+      xorlw   0x30          ; invert output
+    endif
     movwf	PORTC
     goto    save_mode
 
@@ -636,8 +670,9 @@ setleds_yellow
     movfw   PORTC
     andlw   0x08            ; save RGB mode
     iorlw   code_led_yellow ; set LED
-    btfsc	reg_led_type, 0 ; if common anode:
-    xorlw	0x30            ; invert output
+    if CA_LED               ; if common anode:
+      xorlw   0x30          ; invert output
+    endif
     movwf	PORTC
 ;    goto    save_mode
 
@@ -654,8 +689,9 @@ save_mode
 
 flash_led_rst
     movlw   PORTC
-    btfsc	reg_led_type, 0 ; if common anode:
-    xorlw	0x30            ; invert
+    if CA_LED       ; if common anode:
+      xorlw   0x30  ; invert output
+    endif
     andlw   0x30
     btfsc   STATUS, Z
     goto    flash_led_rst_on_off_on
@@ -665,8 +701,9 @@ flash_led_rst_off_on_off
     andlw           0x08
     movwf           reg_ctrl_reset
     iorlw           code_led_red      ; set LED
-    btfsc           reg_led_type, 0   ; if common anode:
-    xorlw           0x30              ; invert output
+    if CA_LED                         ; if common anode:
+      xorlw           0x30            ; invert output
+    endif
     movwf           PORTC
     M_delay_x05ms   repetitions_300ms
     goto            flash_led_rst_end
@@ -676,8 +713,9 @@ flash_led_rst_on_off_on
     andlw           0x08
     movwf           reg_ctrl_reset
     iorlw           code_led_off      ; set LED
-    btfsc           reg_led_type, 0   ; if common anode:
-    xorlw           0x30              ; invert output
+    if CA_LED                         ; if common anode:
+      xorlw           0x30            ; invert output
+    endif
     movwf           PORTC
     M_delay_x05ms   repetitions_300ms
 ;    goto            flash_led_rst_end
@@ -710,11 +748,14 @@ modereset_1
 
 
 delay_05ms
+    clrf    TMR0                ; start timer (operation clears prescaler of T0)
     banksel TRISA
-    M_movlf 0xc1, OPTION_REG    ; make sure prescale assigned to T0 and set to 1:4
+    movfw   OPTION_REG
+    andlw   0xf0
+    movwf   OPTION_REG
     banksel PORTA
     M_movlf delay_05ms_t0_overflows, reg_overflow_cnt
-    clrf    TMR0    ; start timer
+    bsf     INTCON, T0IE        ; enable timer interrupt
 
 delay_05ms_loop_pre
     bcf     INTCON, T0IF
@@ -724,6 +765,7 @@ delay_05ms_loop
     goto    delay_05ms_loop
     decfsz  reg_overflow_cnt, 1
     goto    delay_05ms_loop_pre
+    bcf     INTCON, T0IE        ; disable timer interrupt
     return
 
 delay_x05ms
@@ -748,14 +790,14 @@ start
     clrf    PORTA
     clrf    PORTC
     M_movlf 0x07, CMCON0            ; GPIO2..0 are digital I/O (not connected to comparator)
-    M_movlf 0x38, INTCON            ; enable interrupts: T0IE, INTE (interrupt on rising/falling edge on A2) and RAIE
+    M_movlf 0x18, INTCON            ; enable interrupts: INTE (interrupt on rising/falling edge on A2) and RAIE
     banksel TRISA                   ; Bank 1
     M_movlf 0x70, OSCCON            ; use 8MHz internal clock (internal clock set on config)
     clrf    ANSEL
     M_movlf 0x3f, TRISA             ; in in in in in in
     M_movlf code_RGB_natural, TRISC ; out out out in in out (assumes RGB_natural)
     M_movlf (1<<CTRL_LATCH), IOCA   ; IOC on CTRL_LATCH
-    M_movlf 0xc1, OPTION_REG        ; global pullup disable, use rising edge on A2, prescaler T0 1:4
+    M_movlf 0x80, OPTION_REG        ; global pullup disable, use falling edge on A2, prescaler T0 1:2
     banksel	PORTA                   ; Bank 0
 
 load_mode
@@ -778,7 +820,6 @@ detect_reset_type
     movwf   reg_reset_type
 
 set_led_type
-    M_movlf led_type, reg_led_type
     call    setleds ; set LEDs according to teh LED type
 
 init_end
