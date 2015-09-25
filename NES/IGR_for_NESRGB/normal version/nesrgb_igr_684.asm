@@ -138,7 +138,7 @@
 ; -----------------------------------------------------------------------
 ; Configuration bits: adapt to your setup and needs
 
-    __CONFIG _INTOSCIO & _IESO_OFF & _WDT_OFF & _PWRTE_OFF & _MCLRE_OFF & _CP_OFF & _BOD_OFF & _CP_OFF & _CPD_OFF
+    __CONFIG _INTOSCIO & _IESO_OFF & _WDT_OFF & _PWRTE_OFF & _MCLRE_OFF & _CP_OFF & _CPD_OFF & _BOD_OFF
 
 CA_LED   set 0 ; 0 = LED with common cathode, 1 = LED with common anode
 
@@ -229,7 +229,7 @@ code_RGB_off        EQU 0x00
 code_RGB_natural    EQU 0x0b
 code_RGB_improved   EQU 0x0d
 code_RGB_garish     EQU 0x0e
-     
+
 code_led_off    EQU 0x00
 code_led_red    EQU (1<<LED_RED)
 code_led_green  EQU (1<<LED_GREEN)
