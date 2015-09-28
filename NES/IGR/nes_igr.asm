@@ -164,20 +164,17 @@ DPAD_RI     EQU 0
 idle
     clrf    reg_ctrl_data
     btfsc   GPIO, CTRL_LATCH
-    goto    wait_ctrl_read      ; go go go
+    goto    read_Button_A       ; go go go
     bcf     INTCON, RAIF
 
 idle_loop
-    btfss	INTCON, RAIF    ; data latch changed?
+    btfss   INTCON, RAIF    ; data latch changed?
     goto    idle_loop       ; no -> repeat loop
 
 
-wait_ctrl_read
-    btfsc   GPIO, CTRL_LATCH
-    goto    wait_ctrl_read
-
 read_Button_A
     bcf     INTCON, INTF
+    nop
     btfsc   PORTA, CTRL_DATA
     bsf     reg_ctrl_data, BUTTON_A
 postwait_Button_A
