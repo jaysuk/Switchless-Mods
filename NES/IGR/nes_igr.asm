@@ -357,7 +357,7 @@ start
     M_movlf 0x3f, TRISIO        ; in in in in in in
     M_movlf (1<<N_C), WPUDA     ; pullup at unused pin
     M_movlf 0x02, IOCA          ; IOC on DATA_LATCH
-    clrf    OPTION_REG          ; global pullup enable, use falling data clock edge for interrupt, prescaler T0 1:4
+    clrf    OPTION_REG          ; global pullup enable, use falling edge for interrupt at GPIO2, prescaler T0 1:2
     banksel GPIO
 
 detect_reset_type
