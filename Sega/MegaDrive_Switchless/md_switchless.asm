@@ -34,7 +34,17 @@
 ;           LED_TYPE (in) |7  C3 C2  8| /Videomode (out)
 ;                         `-----------'
 ;
-; Special purposes for pins:
+; Special purposes for pins and other common notes:
+;
+;   Pin 2 (Reset Button)
+;     The code should be able to detect the reset type by it's own without
+;     any other components.
+;     However, sometimes - depending on your PIC - the internal weak pull-up
+;     resistor is not accurate to detect the reset type on low active consoles.
+;     In that case you will see the LED cycles around the modes after
+;     installation. Then you have to add an external pull-up resistor (e.g. 10k)
+;     between pin 1 and 2 (SMD 0805 fits quite well between those pins
+;     for DIL-14 PICs).
 ;
 ;   Pin 4 (RoLC = reset on language change)
 ;      low = RoLC on - pic resets console if language bit has to be changed
@@ -156,14 +166,14 @@ M_setJA macro
 
 M_skipnext_rst_pressed  macro
                         movfw   PORTA
-                        xorwf   reg_reset_type, w
+                        xorwf   reg_reset_type, 0
                         andlw   (1<<RESET_BUTTON)
                         btfss   STATUS, Z
                         endm
 
 M_skipnext_rst_notpressed   macro
                             movfw   PORTA
-                            xorwf   reg_reset_type, w
+                            xorwf   reg_reset_type, 0
                             andlw   1<<RESET_BUTTON
                             btfsc   STATUS, Z
                             endm
@@ -212,7 +222,7 @@ code_led_yellow EQU code_led_green ^ code_led_red
 
 code_led_invert EQU code_led_green ^ code_led_red
 
-delay_10ms_t0_overflows EQU 0x0a    ; prescaler T0 set to 1:4 @ 4MHz
+delay_10ms_t0_overflows EQU 0x14    ; prescaler T0 set to 1:2 @ 4MHz
 repetitions_100ms       EQU 0x0a
 repetitions_200ms       EQU 0x14
 repetitions_300ms       EQU 0x1e
@@ -371,9 +381,14 @@ wait_save_mode_end
 	banksel	PORTA           ; two cycles again
 
 delay_10ms
+    clrf    TMR0                ; start timer (operation clears prescaler of T0)
+    banksel TRISA
+    movfw   OPTION_REG
+    andlw   0xf0
+    movwf   OPTION_REG
+    banksel PORTA
     M_movlf delay_10ms_t0_overflows, reg_overflow_cnt
-    clrf    W
-    movwf   TMR0    ; start timer
+    bsf     INTCON, T0IE        ; enable timer 0 interrupt
 
 delay_10ms_loop_pre
     bcf     INTCON, T0IF
@@ -383,6 +398,7 @@ delay_10ms_loop
     goto    delay_10ms_loop
     decfsz  reg_overflow_cnt, 1
     goto    delay_10ms_loop_pre
+    bcf     INTCON, T0IE        ; disable timer 0 interrupt
     return
 
 delay_x10ms
@@ -391,25 +407,26 @@ delay_x10ms
     goto    delay_x10ms
     return
 
-; --------initialization--------
 
+; --------initialization--------
 start
     clrf    PORTA
     clrf    PORTC
-    M_movlf 0x07, CMCON                 ; GPIO2..0 are digital I/O (not connected to comparator)
-    M_movlf 0x28, INTCON                ; enable interrupts: T0IE and RAIE
-    banksel TRISA                       ; Bank 1
-    call    3FFh                        ; Get the cal value
-    movwf   OSCCAL                      ; Calibrate
-    M_movlf 0x3b, TRISA                 ; in in in out in in
-    M_movlf 0x08, TRISC                 ; out out in out out out
-    M_movlf (1<<RESET_BUTTON), IOCA     ; IOC at reset button
-    M_movlf 0x23, WPUA                  ; pullups at unused pins and reset button
-    M_movlf 0x01, OPTION_REG            ; global pullup enable, prescaler T0 1:4
-    banksel	PORTA                       ; Bank 0
+    M_movlf 0x07, CMCON             ; GPIO2..0 are digital I/O (not connected to comparator)
+    M_movlf 0x08, INTCON            ; enable interrupts: RAIE
+    banksel TRISA                   ; Bank 1
+    call    3FFh                    ; Get the cal value
+    movwf   OSCCAL                  ; Calibrate
+    M_movlf 0x3b, TRISA             ; in in in out in in
+    M_movlf 0x08, TRISC             ; out out in out out out
+    M_movlf (1<<RESET_BUTTON), IOCA ; IOC at reset button
+    M_movlf 0x23, WPUA              ; pullups at unused pins and reset button
+    clrf    OPTION_REG              ; global pullup enable, prescaler T0 1:2
+    banksel PORTA                   ; Bank 0
 
 
 load_mode
+    clrf    reg_first_boot_done
     clrf    reg_current_mode
     bcf     STATUS, C           ; clear carry
     banksel EEADR               ; fetch current mode from EEPROM
@@ -452,15 +469,13 @@ init_end
     M_release_reset
     clrf    reg_previous_mode
     M_movff reg_current_mode, reg_previous_mode ; last mode saved to compare
-    btfss   reg_first_boot_done, 0 
-    clrf    reg_first_boot_done
     btfsc   reg_first_boot_done, 0
     goto    idle
     bsf     reg_first_boot_done, 0
 
 detect_reset_type
     clrf    reg_reset_type
-    btfss   PORTA, RESET_BUTTON
+    btfss   PORTA, RESET_BUTTON             ; skip next for low-active reset
     bsf     reg_reset_type, RESET_BUTTON
     goto    idle
 
