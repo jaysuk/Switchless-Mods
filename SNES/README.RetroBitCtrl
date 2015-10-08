@@ -1,0 +1,5 @@
+Currently, I have a wireless controller from Retro Bit at home.
+(this one here: http://www.amazon.com/SNES-Controller-Wireless-SuperRetro-Retro-Bit/dp/B0083LSCZ8/ref=sr_1_2?ie=UTF8&qid=1338736273&sr=8-2)
+This controller does not work with the current implementation. It seems like that the bits are changed quite slow up on a rising edge at the clock line by the receiver module. E.g. the uIGR reads the bit for button L instead of R. One effect is that the uIGR resets the console if only Select+L is pressed.
+I will see how much the uIGR do have to wait after the rising edge to detect the bits properly. However, I don't want to increase the time to much as if the auto joypad read is not enabled, the time might be to short for detection. I will see how it goes ;)
+At the moment I suggest to lock the uIGR in case you want to use the wireless Retro Bit controller with another controller before start playing.
