@@ -116,8 +116,9 @@ N_C         EQU 4
 RESET_OUT   EQU 5
 
 reg_ctrl_data       EQU 0x41
-reg_overflow_cnt    EQU 0x42
-reg_repetition_cnt  EQU 0x43
+reg_ctrl_read_ready EQU 0x42
+reg_overflow_cnt    EQU 0x43
+reg_repetition_cnt  EQU 0x44
 reg_current_mode    EQU 0x50
 reg_previous_mode   EQU 0x51
 reg_reset_type      EQU 0x60
@@ -157,168 +158,189 @@ DPAD_RI     EQU 0
     nop                 ; 02h
     goto    start       ; 03h begin program / Initializing
 
- org    0x0004  ; jump here on interrupt with GIE set (should not appear)
-    return      ; return with GIE unset
 
- org    0x0005
-idle
-    clrf    reg_ctrl_data
-    btfsc   GPIO, CTRL_LATCH
-    goto    read_Button_A       ; go go go
-    bcf     INTCON, RAIF
-
-idle_loop
-    btfss   INTCON, RAIF    ; data latch changed?
-    goto    idle_loop       ; no -> repeat loop
-
-
-read_Button_A
-    bcf     INTCON, INTF
+; --------ISR--------
+ org    0x0004  ; jump here on interrupt with GIE set
+read_Button_A   ; button A can be read (nearly) immediately
+    M_movlf ((1<<INTE)^(1<<RAIE)), INTCON
     nop
-    btfsc   PORTA, CTRL_DATA
+    nop
+    btfsc   GPIO, CTRL_DATA
     bsf     reg_ctrl_data, BUTTON_A
 postwait_Button_A
     btfss   INTCON, INTF
     goto    postwait_Button_A
 
 prewait_Button_B
-    btfss   PORTA, CTRL_CLK
+    btfss   GPIO, CTRL_CLK
     goto    prewait_Button_B
     bcf     INTCON, INTF
-    bcf     INTCON, RAIF        ; from now on, no IOC at the data latch shall appear
+    bcf     INTCON, RAIF      ; from now on, no IOC at the data latch shall appear
 store_Button_B
-    btfsc   PORTA, CTRL_DATA
+    btfsc   GPIO, CTRL_DATA
     bsf     reg_ctrl_data, BUTTON_B
 postwait_Button_B
     btfss   INTCON, INTF
     goto    postwait_Button_B
 
 prewait_Button_Sl
-    btfss   PORTA, CTRL_CLK
+    btfss   GPIO, CTRL_CLK
     goto    prewait_Button_Sl
     bcf     INTCON, INTF
     nop
 store_Button_Sl
-    btfsc   PORTA, CTRL_DATA
+    btfsc   GPIO, CTRL_DATA
     bsf     reg_ctrl_data, BUTTON_SL
 postwait_Button_Sl
     btfss   INTCON, INTF
     goto    postwait_Button_Sl
 
 prewait_Button_St
-    btfss   PORTA, CTRL_CLK
+    btfss   GPIO, CTRL_CLK
     goto    prewait_Button_St
     bcf     INTCON, INTF
     nop
 store_Button_St
-    btfsc   PORTA, CTRL_DATA
+    btfsc   GPIO, CTRL_DATA
     bsf     reg_ctrl_data, BUTTON_ST
 postwait_Button_St
     btfss   INTCON, INTF
     goto    postwait_Button_St
 
 prewait_DPad_Up
-    btfss   PORTA, CTRL_CLK
+    btfss   GPIO, CTRL_CLK
     goto    prewait_DPad_Up
     bcf     INTCON, INTF
     nop
 store_DPad_Up
-    btfsc   PORTA, CTRL_DATA
+    btfsc   GPIO, CTRL_DATA
     bsf     reg_ctrl_data, DPAD_UP
 postwait_DPad_Up
     btfss   INTCON, INTF
     goto    postwait_DPad_Up
 
 prewait_DPad_Dw
+    btfss   GPIO, CTRL_CLK
+    goto    prewait_DPad_Dw
     bcf     INTCON, INTF
     nop
-    btfss   PORTA, CTRL_CLK
-    goto    prewait_DPad_Dw
 store_Button_DW
-    btfsc   PORTA, CTRL_DATA
+    btfsc   GPIO, CTRL_DATA
     bsf     reg_ctrl_data, DPAD_DW
 postwait_DPad_Dw
     btfss   INTCON, INTF
     goto    postwait_DPad_Dw
 
 prewait_DPad_Le
-    btfss   PORTA, CTRL_CLK
+    btfss   GPIO, CTRL_CLK
     goto    prewait_DPad_Le
     bcf     INTCON, INTF
     nop
 store_DPad_Le
-    btfsc   PORTA, CTRL_DATA
+    btfsc   GPIO, CTRL_DATA
     bsf     reg_ctrl_data, DPAD_LE
 postwait_DPad_Le
     btfss   INTCON, INTF
     goto    postwait_DPad_Le
 
 prewait_DPad_Ri
-    btfss   PORTA, CTRL_CLK
+    btfss   GPIO, CTRL_CLK
     goto    prewait_DPad_Ri
     bcf     INTCON, INTF
     nop
 store_DPad_Ri
-    btfsc   PORTA, CTRL_DATA
+    btfsc   GPIO, CTRL_DATA
     bsf     reg_ctrl_data, DPAD_RI
 postwait_DPad_Ri
     btfss   INTCON, INTF
     goto    postwait_DPad_Ri
 
-    btfsc   INTCON, RAIF
-    goto    idle            ; another IOC on data latch appeared -> invalid read
-	
 
+check_controller_read
+    btfsc   INTCON, RAIF            ; another IOC on data latch appeared
+    goto    invalid_controller_read ; -> if yes, invalid read
+    bsf	    reg_ctrl_read_ready, 0  ; -> if no, indicate a valid read is stored
+    return                          ; return with GIE still unset (GIE set again on demand)
+
+invalid_controller_read
+    clrf    INTCON
+    clrf    reg_ctrl_data
+    clrf    reg_ctrl_read_ready
+    bsf	    INTCON, RAIE
+    retfie                      ; return with GIE set
+
+
+; --------IDLE loops--------
+ org    0x0004d
+idle_prepare
+    clrf    INTCON
+    clrf    reg_ctrl_data
+    clrf    reg_ctrl_read_ready
+
+    btfsc   GPIO, CTRL_LATCH
+    call    read_Button_A                 ; go go go
+    M_movlf ((1<<GIE)^(1<<RAIE)), INTCON  ; set GIE, only react on RAIF
+
+idle_loop
+    btfsc   reg_ctrl_read_ready, 0
+    goto    checkkeys
+    goto    idle_loop
+
+
+; --------controller routines--------
+ org 0x0057
 checkkeys
-    M_belf  0x0f, reg_ctrl_data, ctrl_reset                 ; Start+Select+A+B
-    btfsc   reg_ctrl_reset, bit_ctrl_reset_flag             ; Start+Select+A+B previously detected?
-    goto    doreset                                         ; if yes, perform a reset
-	goto	idle
+    clrf    INTCON
+    M_belf  0x0f, reg_ctrl_data, ctrl_reset     ; Start+Select+A+B
+    btfsc   reg_ctrl_reset, bit_ctrl_reset_flag ; Start+Select+A+B previously detected?
+    goto    doreset                             ; if yes, perform a reset
+    goto    idle_prepare
 
 ctrl_reset
-    btfss           reg_ctrl_reset, bit_ctrl_reset_flag
-    goto            first_ctrl_reset                            ; first loop: set ctrl_reset_flag
-    btfsc           reg_ctrl_reset, bit_ctrl_reset_perform_long
-    goto            dolongreset
+    btfss reg_ctrl_reset, bit_ctrl_reset_flag
+    goto  first_ctrl_reset
+    btfsc reg_ctrl_reset, bit_ctrl_reset_perform_long
+    goto  dolongreset
     M_delay_x05ms   repetitions_045ms
-    incf            reg_ctrl_reset, 1
-    goto            idle
+    incf  reg_ctrl_reset, 1
+    goto  idle_prepare
 
 first_ctrl_reset
     clrf    reg_ctrl_reset
     bsf     reg_ctrl_reset, bit_ctrl_reset_flag
     M_delay_x05ms   repetitions_045ms
-    goto    idle
+    goto    idle_prepare
 
 doreset
-    banksel         TRISIO                   ; Bank 1
-    bcf             TRISIO, RESET_OUT
-    banksel         GPIO                   ; Bank 0
-    M_movff         reg_reset_type, GPIO
+    banksel TRISIO            ; Bank 1
+    bcf     TRISIO, RESET_OUT
+    banksel GPIO              ; Bank 0
+    M_movff reg_reset_type, GPIO
     M_delay_x05ms   repetitions_300ms
-    goto            release_reset
+    goto    release_reset
 
 dolongreset
-    banksel         TRISIO                   ; Bank 1
-    bcf             TRISIO, RESET_OUT
-    banksel         GPIO                   ; Bank 0
-    M_movff         reg_reset_type, GPIO
+    banksel TRISIO            ; Bank 1
+    bcf     TRISIO, RESET_OUT
+    banksel GPIO              ; Bank 0
+    M_movff reg_reset_type, GPIO
     M_delay_x05ms   repetitions_1000ms
     M_delay_x05ms   repetitions_1000ms
     M_delay_x05ms   repetitions_1000ms
 
 release_reset
     movfw   reg_reset_type
-    xorlw   (1<<RESET_OUT)                      ; invert to release
+    xorlw   (1<<RESET_OUT)    ; invert to release
     movwf   GPIO
-    banksel TRISIO                               ; Bank 1
+    banksel TRISIO            ; Bank 1
     bsf     TRISIO, RESET_OUT
-    banksel GPIO                               ; Bank 0
+    banksel GPIO              ; Bank 0
     clrf    reg_ctrl_reset
-    goto    idle
+    goto    idle_prepare
 
 
 ; --------delay calls--------
+ org 0x0093
 delay_05ms
     clrf    TMR0                ; start timer (operation clears prescaler of T0)
     banksel TRISIO
@@ -327,7 +349,7 @@ delay_05ms
     movwf   OPTION_REG
     banksel GPIO
     M_movlf delay_05ms_t0_overflows, reg_overflow_cnt
-    bsf     INTCON, T0IE        ; enable timer interrupt
+    M_movlf (1<<T0IE), INTCON   ; enable timer interrupt
 
 delay_05ms_loop_pre
     bcf     INTCON, T0IF
@@ -337,7 +359,7 @@ delay_05ms_loop
     goto    delay_05ms_loop
     decfsz  reg_overflow_cnt, 1
     goto    delay_05ms_loop_pre
-    bcf     INTCON, T0IE        ; disable timer interrupt
+    clrf    INTCON              ; disable timer interrupt
     return
 
 delay_x05ms
@@ -346,12 +368,13 @@ delay_x05ms
     goto    delay_x05ms
     return
 
-; --------initialization--------
 
+; --------initialization--------
+ org 0x00aa
 start
     clrf    GPIO
     M_movlf 0x07, CMCON0        ; GPIO2..0 are digital I/O (not connected to comparator)
-    M_movlf 0x18, INTCON        ; enable RAIE and INTE to react on data latch and clock
+    clrf    INTCON              ; INTCON set on demand during program
     banksel TRISIO
     M_movlf 0x70, OSCCON        ; use 8MHz internal clock (internal clock set on config)
     M_movlf 0x3f, TRISIO        ; in in in in in in
@@ -368,7 +391,7 @@ detect_reset_type
 
 init_end
     clrf    reg_ctrl_reset  ; clear this reg here just in case
-    goto    idle
+    goto    idle_prepare
 
 ; -----------------------------------------------------------------------
 theend
