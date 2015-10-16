@@ -5,7 +5,7 @@
 ;
 ;	Sega Mega Drive switchless mod
 ;
-;   Copyright (C) 2014 by Peter Bartmann <peter.bartmann@gmx.de>
+;   Copyright (C) 2014 by Peter Bartmann <borti4938@gmx.de>
 ;
 ;   This program is free software; you can redistribute it and/or modify
 ;   it under the terms of the GNU General Public License as published by
@@ -232,10 +232,10 @@ repetitions_mode_delay  EQU 0x4a    ; around 740ms
 
 ; code memory
  org    0x0000
-    clrf	STATUS		; 00h Page 0, Bank 0
-	nop                 ; 01h
-    nop                 ; 02h
-    goto	start		; 03h begin program / Initializing
+    clrf    STATUS  ; 00h Page 0, Bank 0
+    nop             ; 01h
+    nop             ; 02h
+    goto    start   ; 03h begin program / Initializing
 
  org    0x0004  ; jump here on interrupt with GIE set (should not appear)
     return      ; return with GIE unset
@@ -365,20 +365,21 @@ reset_mode
 
 save_mode
     movfw   reg_current_mode
-	banksel EEADR           ; save to EEPROM. note: banksels take two cycles each!
-	movwf   EEDAT
+    banksel EEADR           ; save to EEPROM. note: banksels take two cycles each!
+    movwf   EEDAT
     clrf    EEADR           ; address 0
-	bsf     EECON1, WREN
-	movlw   0x55
-	movwf   EECON2
-	movlw   0xaa
-	movwf   EECON2
-	bsf     EECON1, WR
+    bsf     EECON1, WREN
+    movlw   0x55
+    movwf   EECON2
+    movlw   0xaa
+    movwf   EECON2
+    bsf     EECON1, WR
 wait_save_mode_end
     btfsc   EECON1, WR
     goto    wait_save_mode_end
-	bcf     EECON1, WREN
-	banksel	PORTA           ; two cycles again
+    bcf     EECON1, WREN
+    banksel PORTA           ; two cycles again
+    return
 
 delay_10ms
     clrf    TMR0                ; start timer (operation clears prescaler of T0)
