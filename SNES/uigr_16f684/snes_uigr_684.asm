@@ -5,7 +5,7 @@
 ;
 ;   Copyright (C) 2010 by Maximilian Rehkopf <otakon@gmx.net>
 ;
-;   Last Modified: Oct. 2015 by Peter Bartmann <borti4938@gmx.de>
+;   Last Modified: Dec. 2015 by Peter Bartmann <borti4938@gmx.de>
 ;
 ;   This program is free software; you can redistribute it and/or modify
 ;   it under the terms of the GNU General Public License as published by
@@ -82,21 +82,28 @@
 ;   D-Pad up     Toggle the region timeout                       0xd7 0xcf
 ;   D-Pad down   Toggle $213f-D4-Patch enable/disable            0xdb 0xcf
 ;
-;   Temporary Lock:
+;   Toggle region timeout:
+;   LED confirms with
+;     - region timeout switched on : red   -> yellow -> green
+;     - region timeout switched off: green -> yellow -> red
+;
+;   Toggle region patch:
+;   LED confirms with
+;     - region patch switched on : green -> off -> green
+;     - region patch switched off: red   -> off -> red
+;
+;   Lock Type 1:
 ;   To lock all other combinations one may press (D-Pad left + D-Pad up + L +
 ;   R + A + X -> strean data 0xf5 0x0f) together. The same combination unlocks
 ;   the IGR functionalities again.
 ;   Lock   -> LED confirms with fast flashing red
 ;   Unlock -> LED confirms with fast flashing green
 ;
-;   Permanent Lock:
+;   Lock Type 2:
 ;   To lock all combinations one may press (D-Pad down + D-Pad left + L +
 ;   R + A + B -> strean data 0x79 0x4f) together. This can only be undone by
 ;   a reset (only reset button, not by sd2snes-IGRs) or power off and on again
 ;   Lock   -> LED confirms with fast flashing red
-;
-;   The two locking combinations can be disabled by setting the constant
-;   'with_lock' from 0x01 to 0x00.
 ;
 ;
 ;   functional description:
@@ -117,14 +124,15 @@
 ;
 ;   Toggle region timeout  for ~9s the console stays in the region mode of the
 ;                          cartridge and switches then into the last user mode
-;   Toggle region patch  enables or disables the d4-patch over pin 7
+;   Toggle region patch    enables or disables the d4-patch over pin 7
 ;                          (0V = disable, +5V = enable)
 ;
 ; -----------------------------------------------------------------------
 ; Configuration bits: adapt to your setup and needs
     __CONFIG _INTOSCIO & _IESO_OFF & _WDT_OFF & _PWRTE_OFF & _MCLRE_OFF & _CP_OFF & _CPD_OFF & _BOD_OFF
 
-with_lock set 1 ; 0 = without locking combination, 1 = with locking combinations
+with_lock             set 1 ; 0 = without locking combination
+                            ; 1 = with locking combinations
 
 ; -----------------------------------------------------------------------
 ; macros and definitions
