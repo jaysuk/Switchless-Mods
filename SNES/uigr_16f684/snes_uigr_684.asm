@@ -998,15 +998,19 @@ setled_off
 
 save_mode
     movfw   reg_current_mode
-    banksel EEADR       ; save to EEPROM. note: banksels take two cycles each!
+    banksel EEADR
     movwf   EEDAT
+    clrf    EEADR             ; address 0
     bsf     EECON1,WREN
     M_movlf 0x55, EECON2
     M_movlf 0xaa, EECON2
     bsf     EECON1, WR
-    banksel PORTA       ; two cycles again
+wait_save_mode_end
+    btfsc   EECON1, WR
+    goto    wait_save_mode_end
+    bcf     EECON1, WREN
+    banksel PORTA
     return
-
 
 delay_05ms
     clrf    TMR0                ; start timer (operation clears prescaler of T0)
