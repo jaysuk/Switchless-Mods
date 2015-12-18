@@ -133,6 +133,9 @@
 
 with_lock             set 1 ; 0 = without locking combination
                             ; 1 = with locking combinations
+default_with_regpatch set 0 ; 0 = default set to 60Hz and region timeout enabled
+                            ; 1 = default set to 60Hz and region patch enabled
+                            ;     (for installations without or with region patch)
 
 ; -----------------------------------------------------------------------
 ; macros and definitions
@@ -267,8 +270,11 @@ code_led_50     EQU 0x20    ; green
 code_led_auto   EQU 0x30    ; yellow
 code_invert_led EQU 0x30    ; to invert the LED (needed if a com. anode LED is used)
 
-; code_mode_default   EQU (code_mode_60 ^ code_regpatch)
-code_mode_default   EQU (code_mode_60 ^ code_regtimeout)
+  if default_with_regpatch
+    code_mode_default   EQU (code_mode_60 ^ code_regpatch)
+  else
+    code_mode_default   EQU (code_mode_60 ^ code_regtimeout)
+  end
 
 delay_05ms_t0_overflows     EQU 0x14    ; prescaler T0 set to 1:2
 repetitions_60ms            EQU 0x0c
