@@ -241,7 +241,7 @@ reg_repetition_cnt      EQU 0x32
 reg_t1_overflows        EQU 0x33
 reg_current_mode        EQU 0x40
 reg_passthru_calc       EQU 0x41
-reg_led_save            EQU 0x41
+reg_led_save            EQU 0x42
 
 bit_mode_auto       EQU 0
 bit_mode_60         EQU 1
@@ -1017,16 +1017,49 @@ delay_05ms
     banksel PORTA
     M_movlf delay_05ms_t0_overflows, reg_t0_overflows
     M_movlf (1<<T0IE), INTCON   ; enable timer 0 interrupt
-
 delay_05ms_loop_pre
     bcf     INTCON, T0IF
-
 delay_05ms_loop
+    btfsc   reg_current_mode, bit_mode_scic ; SCIC-Mode?
+    call    delay_update_scic_mode          ; if yes, check the current state
+    btfsc   reg_current_mode, bit_mode_auto ; Auto-Mode?
+    call    delay_update_auto_mode          ; if yes, check the current state
     btfss   INTCON, T0IF
     goto    delay_05ms_loop
     decfsz  reg_t0_overflows, 1
     goto    delay_05ms_loop_pre
     clrf    INTCON              ; disable timer 0 interrupt
+    return
+
+delay_update_auto_mode
+    M_setAuto
+    return
+
+delay_update_scic_mode
+    M_movff PORTC, reg_passthru_calc
+    btfss   reg_passthru_calc, LED_TYPE_IN
+    goto    delay_update_scic_mode_Ca
+delay_update_scic_mode_An
+    btfsc   reg_passthru_calc, LED_MODE_50_IN
+    goto    delay_update_scic_mode_60Hz       ; SCIC: green off -> red must be on
+                                              ; SCIC: green on & ...
+    btfsc   reg_passthru_calc, LED_MODE_60_IN
+    goto    delay_update_scic_mode_50Hz       ; ... red off
+    M_setAuto                                 ; ... red on
+    return
+delay_update_scic_mode_Ca
+    btfss   reg_passthru_calc, LED_MODE_50_IN
+    goto    delay_update_scic_mode_60Hz       ; SCIC: green off -> red must be on
+                                              ; SCIC: green on & ...
+    btfss   reg_passthru_calc, LED_MODE_60_IN
+    goto    delay_update_scic_mode_50Hz       ; ... red off
+    M_setAuto                                 ; ... red on
+    return
+delay_update_scic_mode_60Hz
+    set60Hz
+    return
+delay_update_scic_mode_50Hz
+    set50Hz
     return
 
 delay_x05ms
