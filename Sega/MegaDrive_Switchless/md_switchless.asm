@@ -5,7 +5,7 @@
 ;
 ;	Sega Mega Drive switchless mod
 ;
-;   Copyright (C) 2015 by Peter Bartmann <borti4938@gmx.de>
+;   Copyright (C) 2016 by Peter Bartmann <borti4938@gmx.de>
 ;
 ;   This program is free software; you can redistribute it and/or modify
 ;   it under the terms of the GNU General Public License as published by
@@ -26,9 +26,9 @@
 ;
 ;                         ,-----_-----.
 ;                     +5V |1        14| GND
-;       Reset Button (in) |2  A5 A0 13| n.c.
-;        Reset Line (out) |3  A4 A1 12| n.c.
-;              /RoLC (in) |4  A3 A2 11|  Language  (out)
+;                    n.c. |2  A5 A0 13| Reset Button (in)
+;                    n.c. |3  A4 A1 12| Reset Line (out)
+;              /RoMC (in) |4  A3 A2 11|  Language  (out)
 ;       (green) LED (out) |5  C5 C0 10| /Language  (out)
 ;         (red) LED (out) |6  C4 C1  9|  Videomode (out)
 ;           LED_TYPE (in) |7  C3 C2  8| /Videomode (out)
@@ -36,19 +36,11 @@
 ;
 ; Special purposes for pins and other common notes:
 ;
-;   Pin 2 (Reset Button)
-;     The code should be able to detect the reset type by it's own without
-;     any other components.
-;     However, sometimes - depending on your PIC - the internal weak pull-up
-;     resistor is not accurate to detect the reset type on low active consoles.
-;     In that case you will see the LED cycles around the modes after
-;     installation. Then you have to add an external pull-up resistor (e.g. 10k)
-;     between pin 1 and 2 (SMD 0805 fits quite well between those pins
-;     for DIL-14 PICs).
-;
-;   Pin 4 (RoLC = reset on language change)
-;      low = RoLC on - PIC resets console if language bit has to be changed
-;     high = RoLC off
+;   Pin 4 (RoMC = reset on mode change)
+;      low = RoMC on   - PIC resets console if mode has been changed
+;     high = RoMC off  - in this case only the bit at pin 9 (Videomode) is changed
+;                        (the bit at pin 8 is unchanged until a reset to not change the
+;                         memory bank in the MegaCD MultiBIOS)
 ;
 ;   Pin 9 (Videomode)    Pin 8 (/Videomode)
 ;      low = 50Hz           low = 60Hz
@@ -59,6 +51,10 @@
 ;      low = Japanese       low = English
 ;     high = English       high = Japanese
 ;                          -> Opposite of Pin 11
+;
+;   Pin 13 (Reset Button)
+;     The code should be able to detect the reset type by it's own without
+;     any other components.
 ;     
 ;     
 ; -----------------------------------------------------------------------
@@ -131,15 +127,15 @@ M_delay_x10ms   macro   literal ; delay about literal x 10ms
 
 M_push_reset    macro
                 banksel TRISA
-                bcf     TRISA, RESET_OUT
+                bcf     TRISA, RST_OUT
                 banksel PORTA
-                bcf     PORTA, RESET_OUT
+                bcf     PORTA, RST_OUT
                 endm
 
 M_release_reset macro
-                bsf     PORTA, RESET_OUT
+                bsf     PORTA, RST_OUT
                 banksel TRISA
-                bsf     TRISA, RESET_OUT
+                bsf     TRISA, RST_OUT
                 banksel PORTA
                 endm
 
@@ -166,23 +162,23 @@ M_setJA macro
 M_skipnext_rst_pressed  macro
                         movfw   PORTA
                         xorwf   reg_reset_type, 0
-                        andlw   (1<<RESET_BUTTON)
+                        andlw   (1<<RST_BUTTON)
                         btfss   STATUS, Z
                         endm
 
 M_skipnext_rst_notpressed   macro
                             movfw   PORTA
                             xorwf   reg_reset_type, 0
-                            andlw   1<<RESET_BUTTON
+                            andlw   (1<<RST_BUTTON)
                             btfsc   STATUS, Z
                             endm
 ; -----------------------------------------------------------------------
 
 ;port a
-LANGUAGE        EQU 2
-NRoLC           EQU 3
-RESET_OUT       EQU 4
-RESET_BUTTON    EQU 5
+RST_BUTTON  EQU 0
+RST_OUT     EQU 1
+LANGUAGE    EQU 2
+NRoMC       EQU 3
 
 ;port c
 NLANGUAGE   EQU 0
@@ -274,48 +270,27 @@ mode_delay_loop
     goto    next_mode
 
 
-apply_mode
+apply_mode ; save mode, set video mode and check if a reset is wanted
     call    save_mode
-    ; other strategie than in set_initial_mode
-    ; -> protection against an error in mode selection
-    M_belf  code_ntsc, reg_current_mode, set_new_ntsc
-    M_belf  code_pal, reg_current_mode, set_new_pal
-    M_belf  code_jap, reg_current_mode, set_new_jap
-    goto    set_previous_mode  ; should not appear
+    btfsc   reg_current_mode, bit_videomode
+    bcf     PORTC, VIDMODE                  ; 50Hz
+    btfss   reg_current_mode, bit_videomode
+    bsf     PORTC, VIDMODE                  ; 60Hz
+    M_beff  reg_current_mode, reg_previous_mode, idle ; nothing has been changed -> return to idle
+    btfss   PORTA, NRoMC                              ; auto-reset on mode change?
+    goto    idle                                      ; no: go back to idle 
+                                                      ; yes: perform a reset
 
-set_new_ntsc
-    M_set60
-    goto    apply_mode_post_check
-
-set_new_pal
-    M_set50
-    goto    apply_mode_post_check
-
-set_new_jap
-    M_set60
-    goto    apply_mode_post_check
+doreset
+    M_push_reset
+    M_delay_x10ms   repetitions_300ms
+    goto    set_initial_mode            ; small trick ;)
 
 set_previous_mode
     M_movff reg_previous_mode, reg_current_mode
     call    save_mode
     call    setled
     goto    idle
-
-apply_mode_post_check
-    ; strategie: look if language has been changed while changing mode
-    btfsc   PORTA, NRoLC            ; - look if the user wants a reset on language change
-    goto    idle
-    movfw   reg_previous_mode
-    xorwf   reg_current_mode, w
-    andlw   (1<<bit_language)
-    btfsc   STATUS, Z
-    goto    idle                    ; language bit has not changed
-                                    ; language bit has changed: do a reset
-
-doreset
-    M_push_reset
-    M_delay_x10ms   repetitions_300ms
-    goto    set_initial_mode            ; small trick ;)
 
 ; --------calls--------
 setled
@@ -420,8 +395,8 @@ start
     movwf   OSCCAL                  ; Calibrate
     M_movlf 0x3b, TRISA             ; in in in out in in
     M_movlf 0x08, TRISC             ; out out in out out out
-    M_movlf (1<<RESET_BUTTON), IOCA ; IOC at reset button
-    M_movlf 0x23, WPUA              ; pullups at unused pins and reset button
+    M_movlf (1<<RST_BUTTON), IOCA   ; IOC at reset button
+    M_movlf 0x31, WPUA              ; pullups at unused pins and reset button
     clrf    OPTION_REG              ; global pullup enable, prescaler T0 1:2
     banksel PORTA                   ; Bank 0
 
@@ -476,8 +451,8 @@ init_end
 
 detect_reset_type
     clrf    reg_reset_type
-    btfss   PORTA, RESET_BUTTON             ; skip next for low-active reset
-    bsf     reg_reset_type, RESET_BUTTON
+    btfss   PORTA, RST_BUTTON             ; skip next for low-active reset
+    bsf     reg_reset_type, RST_BUTTON
     goto    idle
 
 ; -----------------------------------------------------------------------
