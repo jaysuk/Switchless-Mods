@@ -226,8 +226,13 @@ check_rst_loop
     goto    check_rst_loop
     
 next_mode
+    btfsc   reg_current_mode, bit_language
+    goto    next_mode_00
     incf    reg_current_mode, 1
-    M_celf  mode_overflow, reg_current_mode, reset_mode
+    goto    mode_delay
+next_mode_00
+;    bcf     reg_current_mode, bit_videomode
+    bcf     reg_current_mode, bit_language
 
 mode_delay
     call    setled
@@ -306,9 +311,6 @@ setled_orange
     movwf   PORTC
     return
 
-reset_mode
-    clrf    reg_current_mode
-    return
 
 save_mode
     movfw   reg_current_mode
