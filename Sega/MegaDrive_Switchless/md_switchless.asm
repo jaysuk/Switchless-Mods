@@ -36,7 +36,7 @@
 ;
 ; Special purposes for pins and other common notes:
 ;
-;   Pin 4 (RoMC = reset on mode change)
+;   Pin 4 (/RoMC = reset on mode change, neg. logic)
 ;      low = RoMC on   - PIC resets console if mode has been changed
 ;     high = RoMC off  - in this case only the bit at pin 9 (Videomode) is changed
 ;                        (the bit at pin 8 is unchanged until a reset to not change the
@@ -261,7 +261,7 @@ apply_mode ; save mode, set video mode and check if a reset is wanted
     btfss   reg_current_mode, bit_videomode
     bsf     PORTC, VIDMODE                  ; 60Hz
     M_beff  reg_current_mode, reg_previous_mode, idle ; nothing has been changed -> return to idle
-    btfss   PORTA, NRoMC                              ; auto-reset on mode change?
+    btfsc   PORTA, NRoMC                              ; auto-reset on mode change?
     goto    idle                                      ; no: go back to idle 
                                                       ; yes: perform a reset
 
