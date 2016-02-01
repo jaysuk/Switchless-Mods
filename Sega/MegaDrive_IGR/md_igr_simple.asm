@@ -47,13 +47,19 @@
 ;          Further, the CPU is paused during that time such that the game does
 ;          not run if you have pin 3 of the microcontroller connected.
 ;
-;    CPU Halt (pin 12)
+;    CPU /HALT (pin 6)
 ;      Used to pause the game during. The game is only paused in the extended
 ;      mode (see description above) after St+A+B+C is pressed for 1.5 seconds.
-;      - MD1 CPU (DIL package) pin 17
-;      - MD2 CPU (PLCC package) pin 19
+;      CPU /HALT is also triggered if a push on the reset button is triggered.
+;      This allows the user, if a switchless mod is installed, to change the
+;      mode without the game is running.
+;      Connect this pin to:
+;        - MD1 CPU (DIL package) pin 17
+;        - MD2 CPU (PLCC package) pin 19
+;      if this feature is wanted. If this feature is not wanted, leave this pin
+;      unconnected.
 ;
-;    Reset Button (pin 13)
+;    Reset Button (pin 7)
 ;      This pin has to be connected to the reset button. The code will sense how
 ;      the button is connected, i.e., either as an low-active or high-active
 ;      reset.
@@ -86,7 +92,7 @@ M_T1reset   macro   ; reset and start timer1
             bsf     T1CON, TMR1ON
             endm
 
-M_push_reset    macro
+M_push_reset    macro             ; macro pauses CPU, too
                 banksel TRISIO
                 movlw   0x3c
                 movwf   TRISIO    ; in in in in out out
@@ -95,7 +101,7 @@ M_push_reset    macro
                 movwf   GPIO
                 endm
 
-M_release_reset macro
+M_release_reset macro             ; macro runs CPU, too
                 movfw   reg_reset_type
                 xorlw   (1<<RST_BUTTON) ^ (1<<CPU_NHALT)
                 movwf   GPIO
@@ -104,6 +110,34 @@ M_release_reset macro
                 movwf   TRISIO    ; in in in in in in
                 banksel GPIO
                 endm
+
+M_pause_CPU macro
+            banksel TRISIO
+            bcf     TRISIO, CPU_NHALT
+            banksel GPIO
+            bcf     GPIO, CPU_NHALT
+            endm
+
+M_run_CPU macro
+          bsf     GPIO, CPU_NHALT
+          banksel TRISIO
+          bsf     TRISIO, CPU_NHALT
+          banksel GPIO
+          endm
+
+M_skipnext_rst_pressed  macro
+                        movfw   GPIO
+                        xorwf   reg_reset_type, 0
+                        andlw   (1<<RST_BUTTON)
+                        btfss   STATUS, Z
+                        endm
+
+M_skipnext_rst_notpressed   macro
+                            movfw   GPIO
+                            xorwf   reg_reset_type, 0
+                            andlw   (1<<RST_BUTTON)
+                            btfsc   STATUS, Z
+                            endm
 
 ; -----------------------------------------------------------------------
 ; bits and registers and more
@@ -134,10 +168,28 @@ ISR org    0x0004  ; jump here on interrupt with GIE set (should not appear)
 
 idle  org    0x0005
     bcf   T1CON, TMR1ON
+    M_skipnext_rst_notpressed
+    goto  check_rst_button
     btfss GPIO, CTRL_P9
     goto  check_ctrl
     bcf   INTCON, GPIF
     sleep
+
+    btfss GPIO, CTRL_P9 ; interupt caused by controller?
+    goto  check_ctrl    ; yes -> goto controller loop
+
+check_rst_button        ; no -> check reset button
+    call  delay_10ms    ; debounce
+    call  delay_10ms    ; debounce
+    M_skipnext_rst_pressed
+    goto  idle
+    M_pause_CPU
+
+check_rst_button_loop
+    M_skipnext_rst_notpressed
+    goto  check_rst_button_loop
+    M_run_CPU
+    goto  idle
     
 check_ctrl ; this point is entered if Pin 9 of the controller port goes low
     btfsc GPIO, CTRL_P6 ; P6 also low?
@@ -159,7 +211,7 @@ check_ctrl_loop
     bcf     T1CON, TMR1ON
     
 do_reset ; St+A+B+C were held for 1.5s
-    M_push_reset
+    M_push_reset        ; this macro pauses the CPU, too
     M_delay_x10ms 0x08
     btfss GPIO, EXTMODE ; extended mode enabled?
     goto  reset_end     ; no -> simply reset
@@ -171,8 +223,8 @@ ext_mode_loop
     goto    ext_mode_loop ; yes -> stay in this loop
     
 reset_end
-    M_release_reset
-    M_delay_x10ms 0x3c ; time (600ms) for the user to release the button comb.
+    M_release_reset     ; this macro starts the CPU, too
+    M_delay_x10ms 0x3c  ; time (600ms) for the user to release the button comb.
     goto idle
           
 delay_10ms
@@ -210,20 +262,17 @@ start
   endif
     movwf   OSCCAL          ; Calibrate
     M_movlf 0x3F, TRISIO    ; in in in in in in
-    M_movlf 1<<CTRL_P9, IOC ; IOC at ctrl. pin 9
-    M_movlf 0x06, WPU       ; pull-ups at GPIO1 (CPU /HALT) and GPIO2 (n.c.)
-    clrf    OPTION_REG      ; global pull-ups enabled
-                            ; for INTE, prescaler T0 1:2
+    M_movlf 0x09, IOC       ; IOC at GPIO3 (CTRL_P9) and GPIO0 (RST_BUTTON)
+    M_movlf 0x06, WPU       ; pull-ups at GPIO2 (n.c.) and GPIO1 (CPU /HALT)
+    clrf    OPTION_REG      ; global pull-ups enabled, prescaler T0 1:2
     banksel GPIO
     M_movlf 0x30, T1CON     ; set prescaler T1 1:8
-    
-senseResetType
-    movfw GPIO
-    andlw (1<<RST_BUTTON)   ; set pin 12 (CPU /HALT) to GND if ...
-    xorlw (1<<RST_BUTTON)   ; set pin 13 (Rst. Button) appropriately if ...
-    movwf reg_reset_type    ; ...  pin 12 and 13 are set as outputs
 
-    goto  idle
+detect_reset_type
+    clrf    reg_reset_type
+    btfss   GPIO, RST_BUTTON             ; skip next for low-active reset
+    bsf     reg_reset_type, RST_BUTTON
+    goto    idle
 
 theend
     END
