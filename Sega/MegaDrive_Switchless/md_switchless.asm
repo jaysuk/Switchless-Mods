@@ -172,8 +172,7 @@ reg_repetition_cnt  EQU 0x21
 reg_current_mode    EQU 0x30
 reg_previous_mode   EQU 0x31
 reg_reset_type      EQU 0x40
-reg_led_buffer      EQU 0x41
-reg_first_boot_done EQU 0x42
+reg_first_boot_done EQU 0x41
 
 ; codes and bits
 code_ntsc           EQU 0x00
@@ -222,7 +221,7 @@ check_rst
     M_skipnext_rst_pressed
     goto    idle
 
-    call    flash_led
+    call    setled_off
     M_movlf repetitions_mode_delay, reg_repetition_cnt
 
 check_rst_loop
@@ -260,6 +259,7 @@ apply_mode ; save mode, set video mode and check if a reset is wanted
     bcf     PORTC, VIDMODE                  ; 50Hz
     btfss   reg_current_mode, bit_videomode
     bsf     PORTC, VIDMODE                  ; 60Hz
+    call    setled
     M_beff  reg_current_mode, reg_previous_mode, idle ; nothing has been changed -> return to idle
     btfsc   PORTA, NRoMC                              ; auto-reset on mode change?
     goto    idle                                      ; no: go back to idle 
@@ -267,6 +267,7 @@ apply_mode ; save mode, set video mode and check if a reset is wanted
 
 doreset
     M_push_reset
+    call    setled
     M_delay_x10ms   repetitions_260ms
     goto    set_initial_mode            ; small trick ;)
 
@@ -325,13 +326,6 @@ setled_off
     btfsc   PORTC, LED_TYPE ; if common anode:
     xorlw   code_led_invert ; invert output
     movwf   PORTC
-    return
-
-flash_led
-    M_movpf PORTC, reg_led_buffer
-    call    setled_off
-    M_delay_x10ms   repetitions_260ms
-    M_movff reg_led_buffer, PORTC
     return
 
 
