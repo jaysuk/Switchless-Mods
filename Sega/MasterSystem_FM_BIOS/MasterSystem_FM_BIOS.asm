@@ -103,8 +103,6 @@
 
     __CONFIG _INTRC_OSC_NOCLKOUT & _WDT_OFF & _PWRTE_OFF & _MCLRE_OFF & _CP_OFF & _CPD_OFF
 
-Debug   set 0 ; 0 = debug off, 1= debug on
-
 ; -----------------------------------------------------------------------
 ; macros and definitions
 
@@ -272,10 +270,10 @@ repetitions_mode_delay  EQU 0x4a    ; around 740ms
 
 ; code memory
  org    0x0000
-    clrf	STATUS		; 00h Page 0, Bank 0
-	nop                 ; 01h
-    nop                 ; 02h
-    goto	start		; 03h begin program / Initializing
+    clrf  STATUS  ; 00h Page 0, Bank 0
+    nop           ; 01h
+    nop           ; 02h
+    goto  start   ; 03h begin program / Initializing
 
  org    0x0004  ; jump here on interrupt with GIE set (should not appear)
     return      ; return with GIE unset
@@ -381,28 +379,28 @@ setled
 
 setled_off
     movlw   code_led_off
-    btfsc	PORTC, LED_TYPE ; if common anode:
+    btfsc   PORTC, LED_TYPE ; if common anode:
     xorlw   code_led_invert ; invert output
     movwf   PORTC
     return
 
 setled_green
     movlw   code_led_green
-    btfsc	PORTC, LED_TYPE ; if common anode:
+    btfsc   PORTC, LED_TYPE ; if common anode:
     xorlw   code_led_invert ; invert output
     movwf   PORTC
     return
 
 setled_red
     movlw   code_led_red
-    btfsc	PORTC, LED_TYPE ; if common anode:
+    btfsc   PORTC, LED_TYPE ; if common anode:
     xorlw   code_led_invert ; invert output
     movwf   PORTC
     return
 
 setled_yellow
     movlw   code_led_yellow
-    btfsc	PORTC, LED_TYPE ; if common anode:
+    btfsc   PORTC, LED_TYPE ; if common anode:
     xorlw   code_led_invert ; invert output
     movwf   PORTC
     return
@@ -424,15 +422,15 @@ setled_yellow_flash
 
 save_mode
     movfw   reg_current_mode
-	banksel	EEADR		; save to EEPROM. note: banksels take two cycles each!
-	movwf	EEDAT
-	bsf     EECON1,WREN
-	movlw	0x55
-	movwf	EECON2
-	movlw	0xaa
-	movwf	EECON2
-	bsf     EECON1, WR
-	banksel	PORTA		; two cycles again
+    banksel EEADR
+    movwf   EEDAT
+    bsf     EECON1,WREN
+    movlw   0x55
+    movwf   EECON2
+    movlw   0xaa
+    movwf   EECON2
+    bsf     EECON1, WR
+    banksel PORTA
     return
 
 
@@ -476,15 +474,15 @@ start
     M_release_reset
 
 load_mode
-    clrf	reg_current_mode
+    clrf    reg_current_mode
     clrf    reg_previous_mode
-	bcf     STATUS, C           ; clear carry
+    bcf     STATUS, C           ; clear carry
     banksel EEADR               ; fetch current mode from EEPROM
     clrf    EEADR               ; address 0
     bsf     EECON1, RD
     movf    EEDAT, w
     banksel PORTA
-	movwf	reg_current_mode    ; last mode saved
+    movwf   reg_current_mode    ; last mode saved
     movwf   reg_previous_mode   ; last mode saved to compare
 
 set_initial_mode
