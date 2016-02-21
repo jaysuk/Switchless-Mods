@@ -473,6 +473,7 @@ start
     M_movlf 0x31, WPUA                  ; weak pullup on BIOS pins and reset button
     M_movlf 0x01, OPTION_REG            ; global pullup disable, prescaler T0 1:4
     banksel	PORTA                       ; Bank 0
+    M_release_reset
 
 load_mode
     clrf	reg_current_mode
