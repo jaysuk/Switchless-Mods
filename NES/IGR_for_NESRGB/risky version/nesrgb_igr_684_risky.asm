@@ -771,6 +771,14 @@ detect_reset_type
     btfss   PORTA, RESET_IN         ; jump next instruction for low-active reset
     movwf   reg_reset_type
 
+lowreset_cpu_help
+    skipnext_for_lowreset
+    goto    set_led_type
+    banksel TRISA
+    M_movlf 1<<RESET_OUT, WPUA
+    bcf	    OPTION_REG, NOT_RAPU    ; enable global pull-up
+    banksel PORTA
+
 set_led_type
     call    setleds ; set LEDs according to teh LED type
 
