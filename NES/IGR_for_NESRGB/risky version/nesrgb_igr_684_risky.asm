@@ -332,7 +332,6 @@ invalid_controller_read
 
 
 ; --------IDLE loops--------
- org    0x0004d
 idle_prepare
     clrf    INTCON
     clrf    reg_ctrl_read_ready
@@ -360,7 +359,6 @@ idle_loop_reset_high
 
 
 ; --------controller routines--------
- org 0x0060
 checkkeys
     clrf    INTCON
     M_belf  0x0f, reg_ctrl_data, ctrl_reset     ; Start+Select+A+B
@@ -446,7 +444,6 @@ domode_next
 
 
 ; --------reset button routines--------
- org 0x00bc
 check_reset
     clrf    INTCON
     call    delay_05ms  ; software debounce
@@ -513,7 +510,6 @@ reset_high_mode_change_loop
 
 
 ; --------mode, led, delay and save_mode calls--------
- org 0x00ec
 set_reg_current_mode_pre
     M_belf  RGB_off, reg_previous_mode, setleds ; reg_prev_mode == 0?
                                                 ; -> cannot change mode in runtime anyway
@@ -742,7 +738,6 @@ mode_change_delay_loop
     return
 
 ; --------initialization--------
- org 0x01a5
 start
     clrf    PORTA
     clrf    PORTC
