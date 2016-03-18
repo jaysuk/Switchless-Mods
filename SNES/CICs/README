@@ -1,0 +1,13 @@
+Mirror of Ikari_01s CIC-clones for the SNES.
+
+
+- Keys:
+  - all hex-files designed to run on a PIC 12F629 microcontroller
+
+- Locks:
+  - snescic-lock.hex: designed to run on a PIC 12F629 microcontroller
+  - snescic-lock-resync.hex:  designed to run on a PIC 12F629 microcontroller
+  - supercic-lock.hex:  compiled to run on a PIC 16F630, 16F676 or 16F684 microcontroller
+
+For more information, please look inside the ASM-files or ask a search engine.
+All thanks go to Ikari!
