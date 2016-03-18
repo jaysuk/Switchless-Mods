@@ -465,13 +465,12 @@ start
     banksel TRISA                       ; Bank 1
     call    3FFh                        ; Get the cal value
     movwf   OSCCAL                      ; Calibrate
-    M_movlf 0x39, TRISA                 ; in in in out out in
+    M_movlf 0x3d, TRISA                 ; in in in in out in
     M_movlf 0x0f, TRISC                 ; out out in in in in
     M_movlf (1<<NRESET_BUTTON), IOCA    ; IOC at reset button
     M_movlf 0x31, WPUA                  ; weak pullup on BIOS pins and reset button
     M_movlf 0x01, OPTION_REG            ; global pullup disable, prescaler T0 1:4
-    banksel	PORTA                       ; Bank 0
-    M_release_reset
+    banksel PORTA                       ; Bank 0
 
 load_mode
     clrf    reg_current_mode
