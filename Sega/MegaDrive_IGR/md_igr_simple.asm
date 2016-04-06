@@ -33,7 +33,7 @@
 ;
 ;  Special Features:
 ;
-;    Ext.Mode (Pin 4)
+;    Ext.Mode (Pin 2)
 ;      - pin set to low: extended mode is switched off.
 ;          The microcontroller simply resets the the console for a few
 ;          milliseconds if the buttons St+A+B+C are held for 1.5seconds at the
