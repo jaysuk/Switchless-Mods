@@ -3,7 +3,7 @@
 ; -----------------------------------------------------------------------
 ;   NES "In-game reset" (IGR) controller
 ;
-;   Copyright (C) 2015 by Peter Bartmann <peter.bartmann@gmx.de>
+;   Copyright (C) 2015 by Peter Bartmann <borti4938@gmx.de>
 ;
 ; -----------------------------------------------------------------------
 ;
@@ -271,7 +271,6 @@ invalid_controller_read
 
 
 ; --------IDLE loops--------
- org    0x0004d
 idle_prepare
     clrf    INTCON
     clrf    reg_ctrl_data
@@ -288,7 +287,6 @@ idle_loop
 
 
 ; --------controller routines--------
- org 0x0057
 checkkeys
     clrf    INTCON
     M_belf  0x0f, reg_ctrl_data, ctrl_reset     ; Start+Select+A+B
@@ -340,7 +338,6 @@ release_reset
 
 
 ; --------delay calls--------
- org 0x0093
 delay_05ms
     clrf    TMR0                ; start timer (operation clears prescaler of T0)
     banksel TRISIO
@@ -370,7 +367,6 @@ delay_x05ms
 
 
 ; --------initialization--------
- org 0x00aa
 start
     clrf    GPIO
     M_movlf 0x07, CMCON0        ; GPIO2..0 are digital I/O (not connected to comparator)

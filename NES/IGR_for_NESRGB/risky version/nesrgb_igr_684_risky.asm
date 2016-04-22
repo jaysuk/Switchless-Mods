@@ -4,7 +4,7 @@
 ;   NES "In-game reset" (IGR) controller with extended control
 ;   for Viletims NESRGB-PCB (color switch)
 ;
-;   Copyright (C) 2014 by Peter Bartmann <peter.bartmann@gmx.de>
+;   Copyright (C) 2014 by Peter Bartmann <borti4938@gmx.de>
 ;
 ;   This program is free software; you can redistribute it and/or modify
 ;   it under the terms of the GNU General Public License as published by
