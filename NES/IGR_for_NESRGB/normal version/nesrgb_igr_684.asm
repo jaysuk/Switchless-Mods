@@ -27,15 +27,15 @@
 ;
 ;   pin configuration: (controller port pin) [Mainboard pin/pad]
 ;
-;                                  ,-----_-----.
-;             +5V (7) [CIC Pin 16] |1        14| GND (1) [CIC Pin 15]
-;      Reset - out (-) [CIC Pin 7] |2  A5 A0 13| serial data in (4) [U7 74HC368 Pin 2]
-;   Reset -  in (-) [Reset button] |3  A4 A1 12| latch in (3) [CPU Pin 39]
-;       Number of Modes in (*) [*] |4  A3 A2 11| clk in (2) [CPU Pin 36]
-;                 (green) LED1 out |5  C5 C0 10| rgb-mode: garish   out [NESRGB Pad 1]
-;                   (red) LED2 out |6  C4 C1  9| rgb-mode: improved out [NESRGB Pad 2]
-;                RGB_indicator out |7  C3 C2  8| rgb-mode: natural  out [NESRGB Pad 3]
-;                                  `-----------'
+;                                     ,-----_-----.
+;                +5V (7) [CIC Pin 16] |1        14| GND (1) [CIC Pin 15]
+;   Reset - out (-) [CPU P.3/CIC P.7] |2  A5 A0 13| serial data in (4) [U7 74HC368 Pin 2]
+;      Reset -  in (-) [Reset button] |3  A4 A1 12| latch in (3) [CPU Pin 39]
+;          Number of Modes in (*) [*] |4  A3 A2 11| clk in (2) [CPU Pin 36]
+;                    (green) LED1 out |5  C5 C0 10| rgb-mode: garish   out [NESRGB Pad 1]
+;                      (red) LED2 out |6  C4 C1  9| rgb-mode: improved out [NESRGB Pad 2]
+;   RGB indicator out / LED Type (in) |7  C3 C2  8| rgb-mode: natural  out [NESRGB Pad 3]
+;                                     `-----------'
 ;
 ;   As the internal oscillator is used, you should connect a capacitor of about 100nF between
 ;   Pin 1 (Vdd/+5V) and Pin 14 (Vss/GND) as close as possible to the PIC. This esures best
@@ -50,10 +50,14 @@
 ;   - pin 4 connected to GND: four modes available  (improved, natural, garish, off)
 ;   - pin 4 connected to +5V: three modes available (improved, natural, garish)
 ;
-;   Pin 7 (RGB_indicator) sets the output mode:
-;      low  = RGB is off
-;      high = RGB is on
-;
+;   Pin 7 - usage is set prior compilation (use RGB_IND)
+;   - If RGB_IND = 0, pin 7 can be used to decide whether a LED with common cathode
+;     (pin set to Vss/GND) or with common anode (pin set to Vdd/+5V) is used.
+;     This mode, e.g., is used on the NES-I/O PCBs.
+;   - If RGB_IND = 1, pin 7 is used as RGB indicator. The pin outputs:
+;        low  = RGB is off
+;        high = RGB is on
+;     The LED type is then set prior to compilation using CA_LED below.
 ;
 ;   preparation of the Resetline
 ;   ============================
@@ -144,7 +148,8 @@
 
     __CONFIG _INTOSCIO & _IESO_OFF & _WDT_OFF & _PWRTE_OFF & _MCLRE_OFF & _CP_OFF & _CPD_OFF & _BOD_OFF
 
-CA_LED  set 0 ; 0 = LED with common cathode, 1 = LED with common anode
+RGB_IND set 1 ; 0 = Use Pin 7 as LED-Type (in), 1 = Use Pin 7 as RGB on/off indicator (out)
+CA_LED  set 1 ; 0 = LED with common cathode, 1 = LED with common anode (only effective if RGB_IND = 1)
 
 ; -----------------------------------------------------------------------
 ; macros and definitions
@@ -227,6 +232,7 @@ NUM_MODES   EQU 3
 RESET_IN    EQU 4
 RESET_OUT   EQU 5
 
+LED_TYPE    EQU 3
 LED_RED     EQU 4
 LED_GREEN   EQU 5
 
@@ -246,15 +252,16 @@ RGB_improved        EQU 0x02    ; code for RGB on improved
 RGB_garish          EQU 0x03    ; code for RGB on garish
 code_mode_overflow  EQU 0x04    ; code for a non available mode (last mode + 1)
 
-code_RGB_off        EQU 0x00
-code_RGB_natural    EQU 0x0b
-code_RGB_improved   EQU 0x0d
-code_RGB_garish     EQU 0x0e
+code_RGB_off        EQU 0x00    ; bit 3 has only an effect if RGB_IND = 1
+code_RGB_natural    EQU 0x0b    ; bit 3 has only an effect if RGB_IND = 1 
+code_RGB_improved   EQU 0x0d    ; bit 3 has only an effect if RGB_IND = 1
+code_RGB_garish     EQU 0x0e    ; bit 3 has only an effect if RGB_IND = 1
 
 code_led_off    EQU 0x00
 code_led_red    EQU (1<<LED_RED)
 code_led_green  EQU (1<<LED_GREEN)
 code_led_yellow EQU (1<<LED_RED) ^ (1<<LED_GREEN)
+code_led_invert EQU (1<<LED_RED) ^ (1<<LED_GREEN)
 
 bit_reset_type          EQU RESET_OUT
 code_reset_low_active   EQU (0<<bit_reset_type)  ; 0x00
@@ -530,8 +537,13 @@ modeset_off
     btfsc   PORTA, NUM_MODES
     goto    modeset_default
     movlw   code_RGB_off ^ code_led_off
-  if CA_LED       ; if common anode:
-    xorlw   0x30  ; invert output
+  if RGB_IND
+    if CA_LED               ; if common anode:
+      xorlw code_led_invert ; invert
+    endif
+  else
+    btfsc   PORTC, LED_TYPE ; if common anode:
+    xorlw   code_led_invert ; invert
   endif
     movwf	PORTC
     goto    save_mode
@@ -542,24 +554,39 @@ modeset_default
 
 modeset_natural
     movlw   code_RGB_natural ^ code_led_red
-  if CA_LED       ; if common anode:
-    xorlw   0x30  ; invert output
+  if RGB_IND
+    if CA_LED               ; if common anode:
+      xorlw code_led_invert ; invert
+    endif
+  else
+    btfsc   PORTC, LED_TYPE ; if common anode:
+    xorlw   code_led_invert ; invert
   endif
     movwf   PORTC
     goto    save_mode
 
 modeset_improved
     movlw   code_RGB_improved ^ code_led_green
-  if CA_LED       ; if common anode:
-    xorlw   0x30  ; invert output
+  if RGB_IND
+    if CA_LED               ; if common anode:
+      xorlw code_led_invert ; invert
+    endif
+  else
+    btfsc   PORTC, LED_TYPE ; if common anode:
+    xorlw   code_led_invert ; invert
   endif
     movwf   PORTC
     goto    save_mode
 
 modeset_garish
     movlw   code_RGB_garish ^ code_led_yellow
-  if CA_LED       ; if common anode:
-    xorlw   0x30  ; invert output
+  if RGB_IND
+    if CA_LED               ; if common anode:
+      xorlw code_led_invert ; invert
+    endif
+  else
+    btfsc   PORTC, LED_TYPE ; if common anode:
+    xorlw   code_led_invert ; invert
   endif
     movwf   PORTC
     goto    save_mode
@@ -576,8 +603,13 @@ setleds_off
     movfw   PORTC
     andlw   0x0f            ; save RGB mode
     iorlw   code_led_off    ; set LED
-  if CA_LED                 ; if common anode:
-    xorlw   0x30            ; invert output
+  if RGB_IND
+    if CA_LED               ; if common anode:
+      xorlw code_led_invert ; invert
+    endif
+  else
+    btfsc   PORTC, LED_TYPE ; if common anode:
+    xorlw   code_led_invert ; invert
   endif
     movwf   PORTC
     goto    save_mode
@@ -586,8 +618,13 @@ setleds_red
     movfw   PORTC
     andlw   0x0f            ; save RGB mode
     iorlw   code_led_red    ; set LED
-  if CA_LED                 ; if common anode:
-    xorlw   0x30            ; invert output
+  if RGB_IND
+    if CA_LED               ; if common anode:
+      xorlw code_led_invert ; invert
+    endif
+  else
+    btfsc   PORTC, LED_TYPE ; if common anode:
+    xorlw   code_led_invert ; invert
   endif
     movwf   PORTC
     goto    save_mode
@@ -596,8 +633,13 @@ setleds_green
     movfw   PORTC
     andlw   0x0f            ; save RGB mode
     iorlw   code_led_green  ; set LED
-  if CA_LED                 ; if common anode:
-    xorlw   0x30            ; invert output
+  if RGB_IND
+    if CA_LED               ; if common anode:
+      xorlw code_led_invert ; invert
+    endif
+  else
+    btfsc   PORTC, LED_TYPE ; if common anode:
+    xorlw   code_led_invert ; invert
   endif
     movwf   PORTC
     goto    save_mode
@@ -606,8 +648,13 @@ setleds_yellow
     movfw   PORTC
     andlw   0x0f            ; save RGB mode
     iorlw   code_led_yellow ; set LED
-  if CA_LED                 ; if common anode:
-    xorlw   0x30            ; invert output
+  if RGB_IND
+    if CA_LED               ; if common anode:
+      xorlw code_led_invert ; invert
+    endif
+  else
+    btfsc   PORTC, LED_TYPE ; if common anode:
+    xorlw   code_led_invert ; invert
   endif
     movwf   PORTC
 ;    goto    save_mode
@@ -624,9 +671,14 @@ save_mode
     return
 
 flash_led_rst
-    movlw   PORTC
-  if CA_LED       ; if common anode:
-    xorlw   0x30  ; invert output
+    movfw   PORTC
+  if RGB_IND
+    if CA_LED               ; if common anode:
+      xorlw code_led_invert ; invert
+    endif
+  else
+    btfsc   PORTC, LED_TYPE ; if common anode:
+    xorlw   code_led_invert ; invert
   endif
     andlw   0x30
     btfsc   STATUS, Z
@@ -635,8 +687,13 @@ flash_led_rst
 flash_led_rst_off_on_off
     M_movpf PORTC, reg_ctrl_reset
     movlw   code_led_red    ; set LED
-  if CA_LED                 ; if common anode:
-    xorlw   0x30            ; invert output
+  if RGB_IND
+    if CA_LED               ; if common anode:
+      xorlw code_led_invert ; invert
+    endif
+  else
+    btfsc   PORTC, LED_TYPE ; if common anode:
+    xorlw   code_led_invert ; invert
   endif
     movwf   PORTC
     M_delay_x05ms   repetitions_300ms
@@ -645,8 +702,13 @@ flash_led_rst_off_on_off
 flash_led_rst_on_off_on
     M_movpf PORTC, reg_ctrl_reset
     movlw   code_led_off    ; set LED
-  if CA_LED                 ; if common anode:
-    xorlw   0x30            ; invert output
+  if RGB_IND
+    if CA_LED               ; if common anode:
+      xorlw code_led_invert ; invert
+    endif
+  else
+    btfsc   PORTC, LED_TYPE ; if common anode:
+    xorlw   code_led_invert ; invert
   endif
     movwf   PORTC
     M_delay_x05ms   repetitions_300ms
@@ -725,7 +787,11 @@ start
     M_movlf 0x70, OSCCON            ; use 8MHz internal clock (internal clock set on config)
     clrf    ANSEL
 ;    M_movlf 0x3f, TRISA             ; in in in in in in (that is default)
+  if RGB_IND
     clrf    TRISC                   ; out out out out out out
+  else
+    M_movlf (1<<LED_TYPE), TRISC    ; out out in out out out
+  endif
     M_movlf (1<<CTRL_LATCH), IOCA   ; IOC on CTRL_LATCH
     M_movlf 0x80, OPTION_REG        ; global pullup disable, use falling edge on A2, prescaler T0 1:2
     banksel PORTA                   ; Bank 0
