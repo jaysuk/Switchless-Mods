@@ -100,6 +100,22 @@ M_celf  macro   literal, compReg, call_func  ; call if a literal is stored in fi
         call    call_func
         endm
 
+M_StBuToRegF    macro   button, toReg  ; store button to register (fast)
+                btfsc   PORTA, CTRL_DATA
+                bsf     toReg, button
+                btfss   INTCON, INTF
+                goto    $-1
+                endm
+
+M_StBuToReg macro   button, toReg  ; store button to register
+            nop
+            bcf     INTCON, INTF
+            btfsc   PORTA, CTRL_DATA
+            bsf     toReg, button
+            btfss   INTCON, INTF
+            goto    $-1
+            endm
+
 M_delay_x05ms   macro   literal ; delay about literal x 05ms
                 movlw   literal
                 movwf   reg_repetition_cnt
@@ -161,100 +177,24 @@ DPAD_RI     EQU 0
 
 ; --------ISR--------
  org    0x0004  ; jump here on interrupt with GIE set
-read_Button_A   ; button A can be read (nearly) immediately
+CtrlRead_ISR
     M_movlf ((1<<INTE)^(1<<RAIE)), INTCON
-    nop
-    nop
-    btfsc   GPIO, CTRL_DATA
-    bsf     reg_ctrl_data, BUTTON_A
-postwait_Button_A
-    btfss   INTCON, INTF
-    goto    postwait_Button_A
-
-prewait_Button_B
-    btfss   GPIO, CTRL_CLK
-    goto    prewait_Button_B
+    clrf    reg_ctrl_data
+    nop; button A can be read immediately (nearly, 4 instruction cycles until this  macro is reached)
+    M_StBuToRegF  BUTTON_A, reg_ctrl_data
+    
+; before button Y is stored, unset RAIF (from now on, no IOC at the data latch shall appear)
     bcf     INTCON, INTF
-    bcf     INTCON, RAIF      ; from now on, no IOC at the data latch shall appear
-store_Button_B
-    btfsc   GPIO, CTRL_DATA
-    bsf     reg_ctrl_data, BUTTON_B
-postwait_Button_B
-    btfss   INTCON, INTF
-    goto    postwait_Button_B
+    bcf     INTCON, RAIF
+    M_StBuToRegF  BUTTON_B, reg_ctrl_data
 
-prewait_Button_Sl
-    btfss   GPIO, CTRL_CLK
-    goto    prewait_Button_Sl
-    bcf     INTCON, INTF
-    nop
-store_Button_Sl
-    btfsc   GPIO, CTRL_DATA
-    bsf     reg_ctrl_data, BUTTON_SL
-postwait_Button_Sl
-    btfss   INTCON, INTF
-    goto    postwait_Button_Sl
-
-prewait_Button_St
-    btfss   GPIO, CTRL_CLK
-    goto    prewait_Button_St
-    bcf     INTCON, INTF
-    nop
-store_Button_St
-    btfsc   GPIO, CTRL_DATA
-    bsf     reg_ctrl_data, BUTTON_ST
-postwait_Button_St
-    btfss   INTCON, INTF
-    goto    postwait_Button_St
-
-prewait_DPad_Up
-    btfss   GPIO, CTRL_CLK
-    goto    prewait_DPad_Up
-    bcf     INTCON, INTF
-    nop
-store_DPad_Up
-    btfsc   GPIO, CTRL_DATA
-    bsf     reg_ctrl_data, DPAD_UP
-postwait_DPad_Up
-    btfss   INTCON, INTF
-    goto    postwait_DPad_Up
-
-prewait_DPad_Dw
-    btfss   GPIO, CTRL_CLK
-    goto    prewait_DPad_Dw
-    bcf     INTCON, INTF
-    nop
-store_Button_DW
-    btfsc   GPIO, CTRL_DATA
-    bsf     reg_ctrl_data, DPAD_DW
-postwait_DPad_Dw
-    btfss   INTCON, INTF
-    goto    postwait_DPad_Dw
-
-prewait_DPad_Le
-    btfss   GPIO, CTRL_CLK
-    goto    prewait_DPad_Le
-    bcf     INTCON, INTF
-    nop
-store_DPad_Le
-    btfsc   GPIO, CTRL_DATA
-    bsf     reg_ctrl_data, DPAD_LE
-postwait_DPad_Le
-    btfss   INTCON, INTF
-    goto    postwait_DPad_Le
-
-prewait_DPad_Ri
-    btfss   GPIO, CTRL_CLK
-    goto    prewait_DPad_Ri
-    bcf     INTCON, INTF
-    nop
-store_DPad_Ri
-    btfsc   GPIO, CTRL_DATA
-    bsf     reg_ctrl_data, DPAD_RI
-postwait_DPad_Ri
-    btfss   INTCON, INTF
-    goto    postwait_DPad_Ri
-
+; read all other buttons afterwards
+    M_StBuToReg BUTTON_SL, reg_ctrl_data
+    M_StBuToReg BUTTON_ST, reg_ctrl_data
+    M_StBuToReg DPAD_UP,   reg_ctrl_data
+    M_StBuToReg DPAD_DW,   reg_ctrl_data
+    M_StBuToReg DPAD_LE,   reg_ctrl_data
+    M_StBuToReg DPAD_RI,   reg_ctrl_data
 
 check_controller_read
     btfsc   INTCON, RAIF            ; another IOC on data latch appeared
@@ -273,11 +213,10 @@ invalid_controller_read
 ; --------IDLE loops--------
 idle_prepare
     clrf    INTCON
-    clrf    reg_ctrl_data
     clrf    reg_ctrl_read_ready
 
     btfsc   GPIO, CTRL_LATCH
-    call    read_Button_A                 ; go go go
+    call    CtrlRead_ISR                  ; go go go
     M_movlf ((1<<GIE)^(1<<RAIE)), INTCON  ; set GIE, only react on RAIF
 
 idle_loop
