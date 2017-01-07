@@ -439,7 +439,7 @@ domode_prev_3
 domode_prev_fin
     decf    reg_current_mode, 1
     call    set_reg_current_mode_pre  ; change mode during runtime
-    call    mode_change_delay
+    M_delay_x05ms   repetitions_mode_delay
     goto    idle_prepare
 
 domode_next
@@ -681,12 +681,13 @@ flash_led_rst
     xorlw   code_led_invert ; invert
   endif
     andlw   0x30
-    btfsc   STATUS, Z
+    btfss   STATUS, Z
     goto    flash_led_rst_on_off_on
 
 flash_led_rst_off_on_off
     M_movpf PORTC, reg_ctrl_reset
-    movlw   code_led_red    ; set LED
+    andlw   0x0f
+    iorlw   code_led_red    ; set LED
   if RGB_IND
     if CA_LED               ; if common anode:
       xorlw code_led_invert ; invert
@@ -701,7 +702,8 @@ flash_led_rst_off_on_off
 
 flash_led_rst_on_off_on
     M_movpf PORTC, reg_ctrl_reset
-    movlw   code_led_off    ; set LED
+    andlw   0x0f
+    iorlw   code_led_off    ; set LED
   if RGB_IND
     if CA_LED               ; if common anode:
       xorlw code_led_invert ; invert
@@ -765,16 +767,6 @@ delay_x05ms
     decfsz  reg_repetition_cnt, 1
     goto    delay_x05ms
     return
-    
-
-mode_change_delay
-    M_movlf repetitions_mode_delay , reg_repetition_cnt
-
-mode_change_delay_loop
-    call    delay_05ms
-    decfsz  reg_repetition_cnt, 1
-    goto    mode_change_delay_loop
-    return
 
 
 ; --------initialization--------
@@ -786,7 +778,7 @@ start
     banksel TRISA                   ; Bank 1
     M_movlf 0x70, OSCCON            ; use 8MHz internal clock (internal clock set on config)
     clrf    ANSEL
-;    M_movlf 0x3f, TRISA             ; in in in in in in (that is default)
+    M_movlf 0x3f, TRISA             ; in in in in in in (that is default)
   if RGB_IND
     clrf    TRISC                   ; out out out out out out
   else

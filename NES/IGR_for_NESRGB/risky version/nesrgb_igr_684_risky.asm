@@ -443,7 +443,7 @@ domode_prev_3
 domode_prev_fin
     decf    reg_current_mode, 1
     call    set_reg_current_mode_pre  ; change mode during runtime
-    call    mode_change_delay
+    M_delay_x05ms   repetitions_mode_delay
     goto    idle_prepare
 
 domode_next
@@ -706,9 +706,12 @@ flash_led_rst
     goto    flash_led_rst_on_off_on
 
 flash_led_rst_off_on_off
-    movfw   PORTC
-    andlw   0x08
-    movwf   reg_ctrl_reset
+    M_movpf PORTC, reg_ctrl_reset
+  if RGB_IND
+    andlw   0x07
+  else
+    andlw   0x0f
+  endif
     iorlw   code_led_red    ; set LED
   if RGB_IND
     if CA_LED               ; if common anode:
@@ -723,9 +726,12 @@ flash_led_rst_off_on_off
     goto            flash_led_rst_end
 
 flash_led_rst_on_off_on
-    movfw   PORTC
-    andlw   0x08
-    movwf   reg_ctrl_reset
+    M_movpf PORTC, reg_ctrl_reset
+  if RGB_IND
+    andlw   0x07
+  else
+    andlw   0x0f
+  endif
     iorlw   code_led_off    ; set LED
   if RGB_IND
     if CA_LED               ; if common anode:
@@ -791,16 +797,6 @@ delay_x05ms
     call    delay_05ms
     decfsz  reg_repetition_cnt, 1
     goto    delay_x05ms
-    return
-    
-
-mode_change_delay
-    M_movlf repetitions_mode_delay , reg_repetition_cnt
-
-mode_change_delay_loop
-    call    delay_05ms
-    decfsz  reg_repetition_cnt, 1
-    goto    mode_change_delay_loop
     return
 
 ; --------initialization--------
