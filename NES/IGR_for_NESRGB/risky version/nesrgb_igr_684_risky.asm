@@ -203,6 +203,7 @@ M_StBuToRegF    macro   button, toReg  ; store button to register (fast)
                 endm
 
 M_StBuToReg macro   button, toReg  ; store button to register
+            goto    $+1
             nop
             bcf     INTCON, INTF
             btfsc   PORTA, CTRL_DATA
@@ -314,7 +315,8 @@ CtrlRead_ISR
 ; button A can be read immediately (nearly, 4 instruction cycles until this  macro is reached)
     M_StBuToRegF  BUTTON_A, reg_ctrl_data
     
-; before button Y is stored, unset RAIF (from now on, no IOC at the data latch shall appear)
+; before button B is stored, unset RAIF (from now on, no IOC at the data latch shall appear)
+    goto    $+1
     bcf     INTCON, INTF
     bcf     INTCON, RAIF
     M_StBuToRegF  BUTTON_B, reg_ctrl_data

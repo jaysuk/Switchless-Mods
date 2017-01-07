@@ -148,8 +148,8 @@
 
     __CONFIG _INTOSCIO & _IESO_OFF & _WDT_OFF & _PWRTE_OFF & _MCLRE_OFF & _CP_OFF & _CPD_OFF & _BOD_OFF
 
-RGB_IND set 1 ; 0 = Use Pin 7 as LED-Type (in), 1 = Use Pin 7 as RGB on/off indicator (out)
-CA_LED  set 1 ; 0 = LED with common cathode, 1 = LED with common anode (only effective if RGB_IND = 1)
+RGB_IND set 0 ; 0 = Use Pin 7 as LED-Type (in), 1 = Use Pin 7 as RGB on/off indicator (out)
+CA_LED  set 0 ; 0 = LED with common cathode, 1 = LED with common anode (only effective if RGB_IND = 1)
 
 ; -----------------------------------------------------------------------
 ; macros and definitions
@@ -207,6 +207,7 @@ M_StBuToRegF    macro   button, toReg  ; store button to register (fast)
                 endm
 
 M_StBuToReg macro   button, toReg  ; store button to register
+            goto    $+1
             nop
             bcf     INTCON, INTF
             btfsc   PORTA, CTRL_DATA
@@ -310,7 +311,8 @@ CtrlRead_ISR
 ; button A can be read immediately (nearly, 4 instruction cycles until this  macro is reached)
     M_StBuToRegF  BUTTON_A, reg_ctrl_data
     
-; before button Y is stored, unset RAIF (from now on, no IOC at the data latch shall appear)
+; before button B is stored, unset RAIF (from now on, no IOC at the data latch shall appear)
+    goto    $+1
     bcf     INTCON, INTF
     bcf     INTCON, RAIF
     M_StBuToRegF  BUTTON_B, reg_ctrl_data
