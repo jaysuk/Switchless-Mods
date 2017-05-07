@@ -58,7 +58,8 @@ processor p12f629
 ; Configuration bits: adapt to your setup and needs
     __CONFIG _INTRC_OSC_NOCLKOUT & _WDT_OFF & _PWRTE_OFF & _MCLRE_OFF & _CP_OFF & _CPD_OFF
 
-Debug   set 0 ; 0 = debug off, 1= debug on
+CA_LED      set 0 ; 0 = LED with common cathode, 1 = LED with common anode
+MAX_MULT_3x set 0 ; 0 = max. mult. 2.0x        , 1 = max. mult. 3.0x
 
 ; -----------------------------------------------------------------------
 ; macros and definitions
@@ -150,22 +151,33 @@ reg_led_type        EQU 0x40
 multiplier_1.0x EQU 0x00
 multiplier_1.5x EQU 1<<MULT_0
 multiplier_2.0x EQU 1<<MULT_1
-multiplier_3.0x EQU (1<<MULT_1) ^ (1<<MULT_0)
+if MAX_MULT_3x
+  multiplier_3.0x EQU (1<<MULT_1) ^ (1<<MULT_0)
+endif
 
-led_1.0x    EQU 0x00
-led_1.5x    EQU 1<<LED_0
-led_2.0x    EQU 1<<LED_1
-led_3.0x    EQU (1<<LED_1) ^ (1<<LED_0)
-
-led_invert  EQU (1<<LED_1) ^ (1<<LED_0)
+if CA_LED
+  led_1.0x    EQU (1<<LED_1) ^ (1<<LED_0)
+  led_1.5x    EQU 1<<LED_1
+  led_2.0x    EQU 1<<LED_0
+  led_3.0x    EQU 0x00
+else
+  led_1.0x    EQU 0x00
+  led_1.5x    EQU 1<<LED_0
+  led_2.0x    EQU 1<<LED_1
+  led_3.0x    EQU (1<<LED_1) ^ (1<<LED_0)
+end if
 
 ; set here important constants for your need :
-led_type            EQU 0x00            ; LED-Type: 00-com.Cat., 01/com.An. - set here
 minimum_mode_number EQU multiplier_1.5x ; nobody wants to use the 1.0x mult; so start with 1.5x
-maximum_mode_number EQU 0x03            ; maximum mode number PLUS 1 (0x03 = 2.0x mult is max., 0x04 = 3.0x mult is max)
+
+if MAX_MULT_3x
+  overflow_mode_number  EQU 0x04
+else
+  overflow_mode_number  EQU 0x03
+endif
 
 ; and finally for time measurement
-delay_5ms_t0_overflows  EQU 0x05    ; prescaler T0 set to 1:4 @ 4MHz
+delay_5ms_t0_overflows  EQU 0x0a    ; prescaler T0 set to 1:2 @ 4MHz
 repetitions_20ms        EQU 0x04
 repetitions_100ms       EQU 0x14
 repetitions_200ms       EQU 0x28
@@ -205,7 +217,7 @@ check_rst_loop
 
 next_mode
     incf    reg_current_mode, 1
-    M_celf  maximum_mode_number, reg_current_mode, reset_mode
+    M_celf  overflow_mode_number, reg_current_mode, reset_mode
 
 mode_delay
     call    set_led  ; includes save_mode
@@ -227,45 +239,37 @@ doreset
 
 
 set_led
-    M_belf  multiplier_1.0x, reg_current_mode, set_led_00
-    M_belf  multiplier_1.5x, reg_current_mode, set_led_01
-    M_belf  multiplier_2.0x, reg_current_mode, set_led_10
-    M_belf  multiplier_3.0x, reg_current_mode, set_led_11
+    M_belf  multiplier_1.0x, reg_current_mode, set_led_10x
+    M_belf  multiplier_1.5x, reg_current_mode, set_led_15x
+    M_belf  multiplier_2.0x, reg_current_mode, set_led_20x
+    M_belf  multiplier_3.0x, reg_current_mode, set_led_30x
     call    reset_mode  ; should not appear
     goto    set_led
 
-set_led_00
+set_led_10x
     movfw   GPIO
     andlw   0x0f
-    btfsc   reg_led_type, 0 ; com.Anode?
-    xorlw   led_invert      ; if yes, invert LED-output
     movwf   GPIO
     goto    save_mode
 
-set_led_01
+set_led_15x
     movfw   GPIO
     andlw   0x0f
     xorlw   led_1.5x
-    btfsc   reg_led_type, 0 ; com.Anode?
-    xorlw   led_invert      ; if yes, invert LED-output
     movwf   GPIO
     goto    save_mode
 
-set_led_10
+set_led_20x
     movfw   GPIO
     andlw   0x0f
     xorlw   led_2.0x
-    btfsc   reg_led_type, 0 ; com.Anode?
-    xorlw   led_invert      ; if yes, invert LED-output
     movwf   GPIO
     goto    save_mode
 
-set_led_11
+set_led_30x
     movfw   GPIO
     andlw   0x0f
     xorlw   led_3.0x
-    btfsc   reg_led_type, 0 ; com.Anode?
-    xorlw   led_invert      ; if yes, invert LED-output
     movwf   GPIO
 ;    goto    save_mode
 
@@ -282,12 +286,11 @@ save_mode
 
 reset_mode
     M_movlf minimum_mode_number, reg_current_mode
-    call    set_led_00  ; set LED off for a short moment
+    call    set_led_10x ; set LED off for a short moment
     M_delay_x5ms   repetitions_240ms
     return
 
 delay_5ms
-    M_movlf 0x01, OPTION_REG    ; make sure prescale assigned to T0 and set to 1:4
     M_movlf delay_5ms_t0_overflows, reg_overflow_cnt
     clrf    TMR0    ; start timer
 
@@ -316,11 +319,11 @@ start
     call    3FFh                ; Get the osccal value
     movwf   OSCCAL              ; Calibrate
     M_movlf (1<<RESET_OUT), WPU ; weak pull-up at GP2
-    M_movlf 0x01, OPTION_REG    ; global pullup enable, prescaler T0 1:4
-    banksel	GPIO                ; Bank 0
+    clrf    OPTION_REG          ; global pullup enable, prescaler T0 1:2
+    banksel GPIO                ; Bank 0
 
 load_mode
-    clrf	reg_current_mode
+    clrf    reg_current_mode
     bcf     STATUS, C                   ; clear carry
     banksel EEADR                       ; fetch current mode from EEPROM
     clrf    EEADR                       ; address 0
@@ -328,7 +331,7 @@ load_mode
     movfw   EEDAT
     banksel GPIO
     andlw   (1<<MULT_0) ^ (1<<MULT_1)   ; just to be sure
-    movwf	reg_current_mode            ; last mode saved
+    movwf   reg_current_mode            ; last mode saved
 
 init_multiplier
     M_movff reg_current_mode, GPIO
