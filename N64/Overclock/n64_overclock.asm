@@ -145,7 +145,6 @@ reg_overflow_cnt    EQU 0x20
 reg_repetition_cnt  EQU 0x21
 reg_current_mode    EQU 0x30
 reg_maximum_mode    EQU 0x31
-reg_led_type        EQU 0x40
 
 ; codes and definitions
 multiplier_1.0x EQU 0x00
@@ -165,7 +164,7 @@ else
   led_1.5x    EQU 1<<LED_0
   led_2.0x    EQU 1<<LED_1
   led_3.0x    EQU (1<<LED_1) ^ (1<<LED_0)
-end if
+endif
 
 ; set here important constants for your need :
 minimum_mode_number EQU multiplier_1.5x ; nobody wants to use the 1.0x mult; so start with 1.5x
@@ -242,7 +241,9 @@ set_led
     M_belf  multiplier_1.0x, reg_current_mode, set_led_10x
     M_belf  multiplier_1.5x, reg_current_mode, set_led_15x
     M_belf  multiplier_2.0x, reg_current_mode, set_led_20x
+if MAX_MULT_3x
     M_belf  multiplier_3.0x, reg_current_mode, set_led_30x
+endif
     call    reset_mode  ; should not appear
     goto    set_led
 
@@ -264,6 +265,7 @@ set_led_20x
     andlw   0x0f
     xorlw   led_2.0x
     movwf   GPIO
+if MAX_MULT_3x
     goto    save_mode
 
 set_led_30x
@@ -271,6 +273,7 @@ set_led_30x
     andlw   0x0f
     xorlw   led_3.0x
     movwf   GPIO
+endif
 ;    goto    save_mode
 
 save_mode
@@ -335,10 +338,9 @@ load_mode
 
 init_multiplier
     M_movff reg_current_mode, GPIO
-    M_movlf maximum_mode_number, reg_maximum_mode
+    M_movlf overflow_mode_number, reg_maximum_mode
     M_beff  reg_current_mode, reg_maximum_mode, revert_multiplier   ; branch is taken only if current mode is 3.0x and 2.0x is maximum mode
     M_release_reset                                                 ; reset can be released
-    M_movlf led_type, reg_led_type                                  ; set led-type
     call set_led                                                    ; includes save_mode
     goto idle
 
