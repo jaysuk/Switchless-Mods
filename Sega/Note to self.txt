@@ -1,1 +1,3 @@
 flat side of LED is red
+470k on blue side
+nothing on red side
